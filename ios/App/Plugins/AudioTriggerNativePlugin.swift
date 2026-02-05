@@ -375,7 +375,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         ])
         
         // Report to server
-        reportRecordingStatus("inicio")
+        reportRecordingStatus("iniciada")
         
         let sid = sessionId ?? ""
         print("[AudioTriggerNative-iOS] OK Recording started, sessionId: \(sid)")
@@ -412,7 +412,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         endBackgroundTask()
         
         // Report to server
-        reportRecordingStatus("fim")
+        reportRecordingStatus("finalizada")
         
         // Update state
         isRecording = false
@@ -587,31 +587,30 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Build URL - usando endpoint Supabase
         let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api")!
         
-        // Get timezone
+        // Get timezone info
         let timezone = TimeZone.current.identifier
+        let timezoneOffset = TimeZone.current.secondsFromGMT() / 60  // Convert to minutes
         
-        // Calculate duracao_total (SEM casas decimais)
-        var duracaoTotal = 0
-        if let startTime = recordingStartTime {
-            duracaoTotal = Int(Date().timeIntervalSince(startTime))
-        }
+        // Get current timestamp in ISO8601 format
+        let formatter = ISO8601DateFormatter()
+        let timestamp = formatter.string(from: Date())
         
-        // Build body JSON (com action field)
+        // Build body JSON matching TypeScript API client
         var body: [String: Any] = [
             "action": "reportarStatusGravacao",
-            "session_id": sessionId,
+            "device_id": sessionId,  // Use sessionId as device_id
+            "timezone": timezone,
+            "timezone_offset_minutes": timezoneOffset,
             "session_token": token,
             "email_usuario": emailUsuario ?? "",
             "status_gravacao": status,
-            "is_recording": (status == "inicio"),
-            "segmentos_enviados": segmentIndex,
-            "origem_gravacao": origemGravacao,
-            "timezone": timezone
+            "timestamp": timestamp,
+            "origem_gravacao": origemGravacao
         ]
         
-        // Add duracao_total only when status = "fim"
-        if status == "fim" {
-            body["duracao_total"] = duracaoTotal
+        // Add segmento_idx if we have sent segments
+        if segmentIndex > 0 {
+            body["segmento_idx"] = segmentIndex
         }
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
