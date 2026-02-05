@@ -231,15 +231,11 @@ export function HomePage({ onLogout }: HomePageProps) {
     console.log('\n\n\n');
     console.log('🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵');
     console.log('🔵 [Home] useEffect AUTO-START executando!');
-    console.log('🔵 hasAllRequired=', hasAllRequired);
     console.log('🔵 isCapturing=', audioTrigger.isCapturing);
     console.log('🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵');
     console.log('\n\n\n');
     
-    if (!hasAllRequired) {
-      console.log('[Home] ❌ Permissions not granted, skipping auto-start');
-      return;
-    }
+    // REMOVED: hasAllRequired check - let hybridAudioTrigger.start() handle permissions internally
     
     // Only start if not already capturing (prevents restart on navigation)
     if (audioTrigger.isCapturing) {
@@ -270,7 +266,7 @@ export function HomePage({ onLogout }: HomePageProps) {
       });
     }, 500);
     return () => clearTimeout(timer);
-  }, [hasAllRequired, toast, audioTrigger.isCapturing]);
+  }, [toast, audioTrigger.isCapturing]);
 
   // Periodic check for monitoring period changes (every minute)
   // This ensures the app switches modes automatically when entering/exiting periods
