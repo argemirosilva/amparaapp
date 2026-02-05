@@ -58,6 +58,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var segmentIndex = 0
     private var segmentTimer: Timer?
     private let segmentDuration: TimeInterval = 30.0 // 30 seconds
+    private var uploader: AudioSegmentUploader?
+    private var recordingBuffer: AVAudioPCMBuffer?
     
     // Audio format
     private let sampleRate: Double = 44100.0
@@ -337,6 +339,20 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Generate session ID
         sessionId = "ios_\(Date().timeIntervalSince1970)_\(UUID().uuidString.prefix(8))"
         
+        // Create uploader
+        guard let token = sessionToken, let email = emailUsuario else {
+            throw NSError(domain: "AudioTriggerNative", code: -3, userInfo: [NSLocalizedDescriptionKey: "Missing credentials"])
+        }
+        uploader = AudioSegmentUploader(
+            sessionId: sessionId!,
+            sessionToken: token,
+            emailUsuario: email,
+            origemGravacao: origemGravacao
+        )
+        
+        // Start first segment
+        try uploader?.startNewSegment(format: recordingFormat)
+        
         // Update state
         isRecording = true
         recordingStartTime = Date()
@@ -368,6 +384,21 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private func stopRecordingInternal() {
         print("[AudioTriggerNative-iOS] 🛑 Stopping recording...")
         
+        // Finish and upload last segment
+        if let uploader = uploader {
+            uploader.finishSegment { success in
+                if success {
+                    print("[AudioTriggerNative-iOS] ✅ Final segment uploaded")
+                } else {
+                    print("[AudioTriggerNative-iOS] ❌ Failed to upload final segment")
+                }
+            }
+        }
+        
+        // Cleanup uploader
+        uploader?.cleanup()
+        uploader = nil
+        
         // Stop audio engine
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -398,6 +429,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
+        
+        // Write buffer to uploader if recording
+        if isRecording {
+            do {
+                try uploader?.writeBuffer(buffer)
+            } catch {
+                print("[AudioTriggerNative-iOS] ❌ Failed to write buffer: \(error)")
+            }
+        }
         
         let channelDataValue = channelData.pointee
         let channelDataValueArray = stride(from: 0, to: Int(buffer.frameLength), by: buffer.stride).map { channelDataValue[$0] }
@@ -481,17 +521,53 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     private func uploadSegment() {
-        print("[AudioTriggerNative-iOS] 📤 Uploading segment \(segmentIndex)...")
+        guard let uploader = uploader else {
+            print("[AudioTriggerNative-iOS] ⚠️ No uploader available")
+            return
+        }
         
-        // In a real implementation, you would:
-        // 1. Save audio buffer to file
-        // 2. Upload file to server
-        // 3. Delete local file
+        print("[AudioTriggerNative-iOS] 📤 Finishing segment \(segmentIndex)...")
         
-        // For now, just notify JS to handle upload
-        notifyEvent("nativeRecordingProgress", data: [
-            "segmentIndex": segmentIndex
-        ])
+        // Finish current segment and upload
+        uploader.finishSegment { [weak self] success in
+            guard let self = self else { return }
+            
+            if success {
+                print("[AudioTriggerNative-iOS] ✅ Segment \(self.segmentIndex) uploaded")
+                
+                // Notify JS
+                self.notifyEvent("nativeRecordingProgress", data: [
+                    "segmentIndex": self.segmentIndex,
+                    "uploaded": true
+                ])
+                
+                // Start new segment if still recording
+                if self.isRecording {
+                    do {
+                        // Get recording format from audio engine
+                        if let engine = self.audioEngine {
+                            let inputNode = engine.inputNode
+                            let inputFormat = inputNode.outputFormat(forBus: 0)
+                            
+                            // Create recording format
+                            if let recordingFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: self.sampleRate, channels: self.channels, interleaved: false) {
+                                try self.uploader?.startNewSegment(format: recordingFormat)
+                            }
+                        }
+                    } catch {
+                        print("[AudioTriggerNative-iOS] ❌ Failed to start new segment: \(error)")
+                    }
+                }
+            } else {
+                print("[AudioTriggerNative-iOS] ❌ Failed to upload segment \(self.segmentIndex)")
+                
+                self.notifyEvent("nativeRecordingProgress", data: [
+                    "segmentIndex": self.segmentIndex,
+                    "uploaded": false,
+                    "error": "Upload failed"
+                ])
+            }
+        }
         
         segmentIndex += 1
     }
