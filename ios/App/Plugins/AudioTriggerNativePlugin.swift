@@ -1512,21 +1512,39 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let device = UIDevice.current
         let deviceModel = "\(device.model) (iOS \(device.systemVersion))"
         let deviceId = UserDefaults.standard.string(forKey: "device_id") ?? "unknown"
+        let deviceName = device.name // Nome configurado pelo usuário (ex: "iPhone de Maria")
         
-        // Get timezone offset
+        // Get battery info
+        device.isBatteryMonitoringEnabled = true
+        let batteryLevel = Int(device.batteryLevel * 100) // 0-100
+        let isCharging = device.batteryState == .charging || device.batteryState == .full
+        
+        // Get app version
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        
+        // Get timezone
+        let timezone = TimeZone.current.identifier // IANA timezone (ex: "America/Sao_Paulo")
         let timezoneOffset = TimeZone.current.secondsFromGMT() / 60
         
-        // Build payload
-        let payload: [String: Any] = [
+        // Build payload with all fields
+        var payload: [String: Any] = [
             "action": "pingMobile",
             "session_token": token,
             "email_usuario": email,
             "device_id": deviceId,
-            "device_model": deviceModel,
             "is_recording": isRecording,
             "is_monitoring": !isRecording, // If not recording, then monitoring
+            "timezone": timezone,
             "timezone_offset_minutes": timezoneOffset
         ]
+        
+        // Add optional fields
+        if batteryLevel >= 0 {
+            payload["bateria_percentual"] = batteryLevel
+        }
+        payload["is_charging"] = isCharging
+        payload["dispositivo_info"] = deviceName
+        payload["versao_app"] = appVersion
         
         // Get API URL from config
         guard let apiUrl = getApiUrl() else {
