@@ -622,7 +622,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             // High amplitude detected
             if fightDetectedTime == nil {
                 fightDetectedTime = Date()
-                print("[AudioTriggerNative-iOS] ⚠️ High amplitude detected: \(amplitude) > \(threshold)")
+                // Removed log to reduce volume: High amplitude detected
             } else if let detectedTime = fightDetectedTime, Date().timeIntervalSince(detectedTime) >= fightDurationThreshold {
                 // Fight confirmed (high amplitude for 10+ seconds)
                 if !isFightDetected {

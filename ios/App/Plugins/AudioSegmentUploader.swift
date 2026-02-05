@@ -226,6 +226,9 @@ class AudioSegmentUploader {
         
         request.httpBody = body
         
+        // Configure timeout (60 seconds)
+        request.timeoutInterval = 60.0
+        
         // Send request
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
