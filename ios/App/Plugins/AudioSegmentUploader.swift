@@ -13,7 +13,7 @@ import CoreLocation
  * - Automatic cleanup of uploaded files
  */
 
-class AudioSegmentUploader {
+class AudioSegmentUploader: NSObject {
     
     // MARK: - Properties
     
