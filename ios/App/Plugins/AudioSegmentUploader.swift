@@ -224,10 +224,31 @@ class AudioSegmentUploader {
     // MARK: - Conversion
     
     private func convertM4AtoMP3(inputURL: URL, outputURL: URL, completion: @escaping (Bool) -> Void) {
+        // Validate input file exists
+        guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            print("[AudioSegmentUploader] ❌ Input file does not exist: \(inputURL.path)")
+            completion(false)
+            return
+        }
+        
+        // Check file size
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: inputURL.path),
+           let fileSize = attributes[.size] as? Int64 {
+            print("[AudioSegmentUploader] 📊 Input file size: \(fileSize) bytes")
+            
+            if fileSize == 0 {
+                print("[AudioSegmentUploader] ❌ Input file is empty")
+                completion(false)
+                return
+            }
+        }
+        
         // Delete output file if exists
         try? FileManager.default.removeItem(at: outputURL)
         
         print("[AudioSegmentUploader] 🔄 Converting M4A to MP3 using LAME encoder")
+        print("[AudioSegmentUploader] 📂 Input: \(inputURL.path)")
+        print("[AudioSegmentUploader] 📂 Output: \(outputURL.path)")
         
         DispatchQueue.global(qos: .userInitiated).async {
             let converter = ExtAudioConverter()

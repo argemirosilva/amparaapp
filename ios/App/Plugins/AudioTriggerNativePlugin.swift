@@ -654,6 +654,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         print("[AudioTriggerNative-iOS] 📤 Finishing segment \(segmentIndex)...")
         
+        // End previous background task before starting upload
+        endBackgroundTask()
+        
+        // Start new background task for upload
+        startBackgroundTask()
+        
         // Finish current segment and upload
         uploader.finishSegment { [weak self] success in
             guard let self = self else { return }
@@ -692,6 +698,14 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     "uploaded": false,
                     "error": "Upload failed"
                 ])
+            }
+            
+            // End background task after upload completes (success or failure)
+            self.endBackgroundTask()
+            
+            // Restart background task if still recording
+            if self.isRecording {
+                self.startBackgroundTask()
             }
         }
         
