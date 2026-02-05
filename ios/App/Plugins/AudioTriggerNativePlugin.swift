@@ -575,9 +575,14 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Server Communication
     
     private func reportRecordingStatus(_ status: String) {
-        guard let sessionId = sessionId, let token = sessionToken else { return }
+        guard let sessionId = sessionId, let token = sessionToken else {
+            print("[AudioTriggerNative-iOS] ⚠️ Cannot report status: missing sessionId or token")
+            return
+        }
         
         print("[AudioTriggerNative-iOS] 📡 Reporting status: \(status)")
+        print("[AudioTriggerNative-iOS] 📡 Session ID: \(sessionId)")
+        print("[AudioTriggerNative-iOS] 📡 Email: \(emailUsuario ?? "nil")")
         
         // Build URL - usando endpoint Supabase
         let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api")!
@@ -616,11 +621,27 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
         
+        print("[AudioTriggerNative-iOS] 📡 Sending request to: \(url.absoluteString)")
+        print("[AudioTriggerNative-iOS] 📡 Request body: \(String(data: jsonData, encoding: .utf8) ?? "invalid")")
+        
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("[AudioTriggerNative-iOS] ❌ Failed to report status: \(error)")
-            } else {
-                print("[AudioTriggerNative-iOS] OK Status reported: \(status)")
+                print("[AudioTriggerNative-iOS] ❌ Failed to report status: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("[AudioTriggerNative-iOS] 📊 HTTP Status: \(httpResponse.statusCode)")
+                
+                if let data = data, let responseBody = String(data: data, encoding: .utf8) {
+                    print("[AudioTriggerNative-iOS] 📊 Response body: \(responseBody)")
+                }
+                
+                if httpResponse.statusCode == 200 {
+                    print("[AudioTriggerNative-iOS] ✅ Status '\(status)' reported successfully")
+                } else {
+                    print("[AudioTriggerNative-iOS] ❌ Status report failed with code: \(httpResponse.statusCode)")
+                }
             }
         }.resume()
     }
