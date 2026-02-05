@@ -1308,6 +1308,11 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             // Stop recording if active
             if isRecording {
                 print("[AudioTriggerNative-iOS] ⏸️ Pausing recording due to interruption")
+                
+                // Set stop reason BEFORE stopping
+                stopReason = "mic_solicitado"
+                
+                // Stop recording (will upload current segment and report status)
                 stopRecordingInternal()
                 
                 // Notify JS
@@ -1340,23 +1345,22 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 if wasMonitoringBeforeInterruption {
                     do {
                         try startMonitoring()
-                        print("[AudioTriggerNative-iOS] ✅ Monitoring resumed")
+                        print("[AudioTriggerNative-iOS] ✅ Monitoring resumed after interruption")
+                        
+                        // Notify JS that monitoring resumed
+                        notifyEvent("audioResumed", data: [
+                            "monitoringResumed": true,
+                            "recordingResumed": false
+                        ])
                     } catch {
                         print("[AudioTriggerNative-iOS] ❌ Failed to resume monitoring: \(error)")
                     }
                 }
                 
-                // Resume recording if it was active
+                // DON'T auto-resume recording - let detection or user decide
+                // (Android behavior: interruption stops recording permanently)
                 if wasRecordingBeforeInterruption {
-                    do {
-                        try startRecording()
-                        print("[AudioTriggerNative-iOS] ✅ Recording resumed")
-                        
-                        // Notify JS
-                        notifyEvent("audioResumed", data: [:])
-                    } catch {
-                        print("[AudioTriggerNative-iOS] ❌ Failed to resume recording: \(error)")
-                    }
+                    print("[AudioTriggerNative-iOS] ℹ️ Recording was interrupted - NOT auto-resuming (user/detection must restart)")
                 }
             } else {
                 print("[AudioTriggerNative-iOS] ⚠️ Interruption ended but should NOT resume")
