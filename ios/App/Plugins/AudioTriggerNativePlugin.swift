@@ -605,8 +605,17 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Update state
         isRecording = false
+        
+        // Android behavior: Complete detector reset after recording stops
+        print("[AudioTriggerNative-iOS] 🔄 Resetting detector (Android behavior)")
         isCalibrated = false
         calibrationSamples = []
+        frameBuffer.removeAll()
+        secondsWindow.removeAll()
+        speechCount = 0
+        loudCount = 0
+        currentRmsDb = -100.0
+        // Note: noiseFloor is preserved for next monitoring session
         
         // Notify JS
         notifyEvent("nativeRecordingStopped", data: [:])
@@ -1101,14 +1110,26 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     private func sendMetricsUpdate() {
-        // Calculate densities from sliding window
-        let speechDensity = Double(secondsWindow.filter { $0.isSpeech }.count) / Double(max(secondsWindow.count, 1))
-        let loudDensity = Double(secondsWindow.filter { $0.isLoud }.count) / Double(max(secondsWindow.count, 1))
+        // Android behavior: Send score=0 during recording (simulated silence)
+        let discussionScore: Double
+        let speechDensity: Double
+        let loudDensity: Double
         
-        // Calculate discussion score (0.0 to 1.0) - Android-compatible
-        let speechNorm = min(speechDensity / speechDensityMin, 1.0)
-        let loudNorm = min(loudDensity / loudDensityMin, 1.0)
-        let discussionScore = (speechNorm + loudNorm) / 2.0
+        if isRecording {
+            // During recording: Send simulated silence (score = 0.0)
+            discussionScore = 0.0
+            speechDensity = 0.0
+            loudDensity = 0.0
+        } else {
+            // During monitoring: Calculate real densities from sliding window
+            speechDensity = Double(secondsWindow.filter { $0.isSpeech }.count) / Double(max(secondsWindow.count, 1))
+            loudDensity = Double(secondsWindow.filter { $0.isLoud }.count) / Double(max(secondsWindow.count, 1))
+            
+            // Calculate discussion score (0.0 to 1.0) - Android-compatible
+            let speechNorm = min(speechDensity / speechDensityMin, 1.0)
+            let loudNorm = min(loudDensity / loudDensityMin, 1.0)
+            discussionScore = (speechNorm + loudNorm) / 2.0
+        }
         
         // Thresholds for isSpeech and isLoud
         let vadThreshold = noiseFloor + vadDeltaDb
