@@ -50,9 +50,15 @@ class AudioSegmentUploader {
         locationManager?.distanceFilter = 10 // Update every 10 meters
         locationManager?.delegate = self
         
+        // Enable background location updates (CRITICAL for long-term background operation)
+        locationManager?.allowsBackgroundLocationUpdates = true
+        locationManager?.pausesLocationUpdatesAutomatically = false
+        locationManager?.showsBackgroundLocationIndicator = true // Show blue bar when using location
+        
         // Start monitoring location
         if CLLocationManager.locationServicesEnabled() {
             locationManager?.startUpdatingLocation()
+            print("[AudioSegmentUploader] 📍 GPS started with background updates enabled")
         }
     }
     
