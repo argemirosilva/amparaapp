@@ -648,11 +648,20 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Segment Upload
     
     private func startSegmentTimer() {
+        print("[AudioTriggerNative-iOS] ⏱️ startSegmentTimer() called, segmentDuration: \(segmentDuration)s")
+        
         // MUST run on main thread for Timer to work
         DispatchQueue.main.async { [weak self] in
-            self?.segmentTimer = Timer.scheduledTimer(withTimeInterval: self?.segmentDuration ?? 30.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            print("[AudioTriggerNative-iOS] ⏱️ Creating segment timer on main thread...")
+            
+            self.segmentTimer = Timer.scheduledTimer(withTimeInterval: self.segmentDuration, repeats: true) { [weak self] _ in
+                print("[AudioTriggerNative-iOS] ⏰ Segment timer FIRED! Calling uploadSegment()...")
                 self?.uploadSegment()
             }
+            
+            print("[AudioTriggerNative-iOS] ✅ Segment timer created successfully, will fire every \(self.segmentDuration)s")
         }
     }
     
