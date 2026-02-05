@@ -596,7 +596,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             "action": "reportarStatusGravacao",
             "session_id": sessionId,
             "session_token": token,
-            "email": emailUsuario,
+            "email_usuario": emailUsuario,
             "status": status,
             "segmentos_enviados": segmentIndex,
             "origem_gravacao": origemGravacao,
