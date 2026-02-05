@@ -480,13 +480,24 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Finish and upload last segment
         if let uploader = uploader {
-            uploader.finishSegment { success in
+            uploader.finishSegment { [weak self] success in
+                guard let self = self else { return }
+                
                 if success {
                     print("[AudioTriggerNative-iOS] ✅ Final segment uploaded")
                 } else {
                     print("[AudioTriggerNative-iOS] ❌ Failed to upload final segment")
                 }
+                
+                // Report to server AFTER upload completes
+                self.reportRecordingStatus("finalizada")
+                
+                print("[AudioTriggerNative-iOS] OK Recording stopped")
             }
+        } else {
+            // No uploader, report immediately
+            reportRecordingStatus("finalizada")
+            print("[AudioTriggerNative-iOS] OK Recording stopped (no uploader)")
         }
         
         // Cleanup uploader
@@ -508,9 +519,6 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Stop background task
         endBackgroundTask()
         
-        // Report to server
-        reportRecordingStatus("finalizada")
-        
         // Update state
         isRecording = false
         isCalibrated = false
@@ -518,8 +526,6 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Notify JS
         notifyEvent("nativeRecordingStopped", data: [:])
-        
-        print("[AudioTriggerNative-iOS] OK Recording stopped")
     }
     
     // MARK: - Audio Processing
