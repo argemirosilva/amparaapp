@@ -579,8 +579,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         print("[AudioTriggerNative-iOS] 📡 Reporting status: \(status)")
         
-        // Build URL (sem query params) - usando endpoint Supabase correto
-        let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api")!
+        // Build URL - usando endpoint correto
+        let urlString = "https://api.ampara.app.br/api/mobile/gravacoes/status?session_id=\(sessionId)&status=\(status)&segmentos_enviados=\(segmentIndex)"
+        guard let url = URL(string: urlString) else { return }
         
         // Get timezone
         let timezone = TimeZone.current.identifier
@@ -591,10 +592,11 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             duracaoTotal = Int(Date().timeIntervalSince(startTime))
         }
         
-        // Build body JSON (igual ao JavaScript)
+        // Build body JSON
         var body: [String: Any] = [
             "session_id": sessionId,
             "session_token": token,
+            "email": emailUsuario,
             "status": status,
             "segmentos_enviados": segmentIndex,
             "origem_gravacao": origemGravacao,

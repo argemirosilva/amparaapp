@@ -134,6 +134,11 @@ class AudioSegmentUploader {
         body.append("Content-Disposition: form-data; name=\"session_token\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(sessionToken)\r\n".data(using: .utf8)!)
         
+        // Add email field (REQUIRED!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"email\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(emailUsuario)\r\n".data(using: .utf8)!)
+        
         // Add segment_index field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"segment_index\"\r\n\r\n".data(using: .utf8)!)
