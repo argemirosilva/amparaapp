@@ -40,7 +40,7 @@ class AudioSegmentUploader {
     func startNewSegment(format: AVAudioFormat) throws {
         // Create temporary file for segment
         let tempDir = FileManager.default.temporaryDirectory
-        let fileName = "segment_\\(segmentIndex).m4a"
+        let fileName = "segment_\(segmentIndex).m4a"
         audioFileURL = tempDir.appendingPathComponent(fileName)
         
         guard let url = audioFileURL else {
@@ -54,7 +54,7 @@ class AudioSegmentUploader {
         audioFile = try AVAudioFile(forWriting: url, settings: format.settings)
         segmentStartTime = Date()
         
-        print("[AudioSegmentUploader] 📝 Started new segment \\(segmentIndex): \\(fileName)")
+        print("[AudioSegmentUploader] 📝 Started new segment \(segmentIndex): \(fileName)")
     }
     
     func writeBuffer(_ buffer: AVAudioPCMBuffer) throws {
@@ -73,7 +73,7 @@ class AudioSegmentUploader {
         // Calculate duration
         let duration = segmentStartTime.map { Date().timeIntervalSince($0) } ?? segmentDuration
         
-        print("[AudioSegmentUploader] 📤 Uploading segment \\(segmentIndex), duration: \\(duration)s")
+        print("[AudioSegmentUploader] 📤 Uploading segment \(segmentIndex), duration: \(Int(duration))s")
         
         // Upload to server
         uploadSegment(fileURL: url, segmentIndex: segmentIndex, duration: Int(duration)) { [weak self] success in
@@ -82,9 +82,9 @@ class AudioSegmentUploader {
             if success {
                 // Delete local file after successful upload
                 try? FileManager.default.removeItem(at: url)
-                print("[AudioSegmentUploader] ✅ Segment \\(self.segmentIndex) uploaded and deleted")
+                print("[AudioSegmentUploader] ✅ Segment \(self.segmentIndex) uploaded and deleted")
             } else {
-                print("[AudioSegmentUploader] ❌ Failed to upload segment \\(self.segmentIndex)")
+                print("[AudioSegmentUploader] ❌ Failed to upload segment \(self.segmentIndex)")
             }
             
             self.segmentIndex += 1
@@ -169,20 +169,28 @@ class AudioSegmentUploader {
         // Send request
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("[AudioSegmentUploader] ❌ Upload error: \\(error)")
+                print("[AudioSegmentUploader] ❌ Upload error: \(error)")
                 completion(false)
                 return
             }
             
             if let httpResponse = response as? HTTPURLResponse {
+                print("[AudioSegmentUploader] 📊 HTTP Status: \(httpResponse.statusCode)")
+                
+                // Log response body for debugging
+                if let data = data, let responseBody = String(data: data, encoding: .utf8) {
+                    print("[AudioSegmentUploader] 📊 Response body: \(responseBody)")
+                }
+                
                 if httpResponse.statusCode == 200 {
-                    print("[AudioSegmentUploader] ✅ Segment \\(segmentIndex) uploaded successfully")
+                    print("[AudioSegmentUploader] ✅ Segment \(segmentIndex) uploaded successfully")
                     completion(true)
                 } else {
-                    print("[AudioSegmentUploader] ❌ Upload failed with status: \\(httpResponse.statusCode)")
+                    print("[AudioSegmentUploader] ❌ Upload failed with status: \(httpResponse.statusCode)")
                     completion(false)
                 }
             } else {
+                print("[AudioSegmentUploader] ❌ No HTTP response received")
                 completion(false)
             }
         }.resume()
