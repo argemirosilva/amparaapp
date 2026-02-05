@@ -1,13 +1,12 @@
 import Foundation
 import AVFoundation
-import SwiftLAME
 
 /**
  * AudioSegmentUploader - Handles audio segment recording and upload
  * 
  * Features:
  * - Records audio to M4A files (AAC codec)
- * - Converts M4A to MP3 using LAME encoder
+ * - Converts M4A to MP3 using LAME encoder (via ExtAudioConverter)
  * - Uploads segments to server every 30 seconds
  * - Includes timezone in requests
  * - Automatic cleanup of uploaded files
@@ -230,31 +229,23 @@ class AudioSegmentUploader {
         
         print("[AudioSegmentUploader] 🔄 Converting M4A to MP3 using LAME encoder")
         
-        Task {
-            do {
-                // Configure LAME encoder
-                let config = SwiftLameEncoder.Configuration(
-                    sampleRate: .constant(44100),
-                    bitrateMode: .constant(128),
-                    quality: .mp3Standard
-                )
-                
-                // Create encoder
-                let encoder = try SwiftLameEncoder(
-                    sourceUrl: inputURL,
-                    configuration: config,
-                    destinationUrl: outputURL
-                )
-                
-                // Encode
-                try await encoder.encode(priority: .userInitiated)
-                
-                print("[AudioSegmentUploader] ✅ LAME conversion successful")
-                completion(true)
-                
-            } catch {
-                print("[AudioSegmentUploader] ❌ LAME conversion failed: \(error.localizedDescription)")
-                completion(false)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let converter = ExtAudioConverter()
+            converter.inputFile = inputURL.path
+            converter.outputFile = outputURL.path
+            converter.outputFileType = kAudioFileMP3Type
+            converter.outputFormatID = kAudioFormatMPEGLayer3
+            
+            let success = converter.convert()
+            
+            DispatchQueue.main.async {
+                if success {
+                    print("[AudioSegmentUploader] ✅ LAME conversion successful")
+                    completion(true)
+                } else {
+                    print("[AudioSegmentUploader] ❌ LAME conversion failed")
+                    completion(false)
+                }
             }
         }
     }
