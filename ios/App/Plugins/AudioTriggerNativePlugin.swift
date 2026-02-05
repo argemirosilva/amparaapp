@@ -34,6 +34,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var isCalibrated = false
     private var sessionId: String?
     private var sessionToken: String?
+    private var refreshToken: String?
     private var emailUsuario: String?
     private var origemGravacao: String = "monitoramento_automatico"
     
@@ -154,6 +155,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         if let token = call.getString("sessionToken") {
             sessionToken = token
         }
+        if let refresh = call.getString("refreshToken") {
+            refreshToken = refresh
+        }
         if let email = call.getString("emailUsuario") {
             emailUsuario = email
         }
@@ -220,6 +224,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Get credentials from call
         if let token = call.getString("sessionToken") {
             sessionToken = token
+        }
+        if let refresh = call.getString("refreshToken") {
+            refreshToken = refresh
         }
         if let email = call.getString("emailUsuario") {
             emailUsuario = email
@@ -1502,6 +1509,103 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         print("[AudioTriggerNative-iOS] ⏹️ Ping timer stopped")
     }
     
+    private func refreshAccessToken(completion: @escaping (Bool) -> Void) {
+        guard let refresh = refreshToken else {
+            print("[AudioTriggerNative-iOS] ❌ No refresh token available")
+            completion(false)
+            return
+        }
+        
+        guard let apiUrl = getApiUrl() else {
+            print("[AudioTriggerNative-iOS] ❌ Cannot refresh token: API URL not configured")
+            completion(false)
+            return
+        }
+        
+        guard let url = URL(string: apiUrl) else {
+            print("[AudioTriggerNative-iOS] ❌ Invalid API URL: \(apiUrl)")
+            completion(false)
+            return
+        }
+        
+        // Build payload
+        let payload: [String: Any] = [
+            "action": "refresh_token",
+            "refresh_token": refresh
+        ]
+        
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        } catch {
+            print("[AudioTriggerNative-iOS] ❌ Failed to serialize refresh payload: \(error)")
+            completion(false)
+            return
+        }
+        
+        // Send request
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else {
+                completion(false)
+                return
+            }
+            
+            if let error = error {
+                print("[AudioTriggerNative-iOS] ❌ Refresh token request failed: \(error.localizedDescription)")
+                completion(false)
+                return
+            }
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("[AudioTriggerNative-iOS] ❌ Invalid refresh response")
+                completion(false)
+                return
+            }
+            
+            if httpResponse.statusCode == 200 {
+                // Parse response to get new tokens
+                guard let data = data else {
+                    print("[AudioTriggerNative-iOS] ❌ No data in refresh response")
+                    completion(false)
+                    return
+                }
+                
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let newAccessToken = json["access_token"] as? String,
+                       let newRefreshToken = json["refresh_token"] as? String {
+                        
+                        // Update tokens
+                        self.sessionToken = newAccessToken
+                        self.refreshToken = newRefreshToken
+                        
+                        // Notify JavaScript to update tokens
+                        self.notifyEvent("tokensRefreshed", data: [
+                            "access_token": newAccessToken,
+                            "refresh_token": newRefreshToken
+                        ])
+                        
+                        print("[AudioTriggerNative-iOS] ✅ Tokens refreshed successfully")
+                        completion(true)
+                    } else {
+                        print("[AudioTriggerNative-iOS] ❌ Invalid refresh response format")
+                        completion(false)
+                    }
+                } catch {
+                    print("[AudioTriggerNative-iOS] ❌ Failed to parse refresh response: \(error)")
+                    completion(false)
+                }
+            } else {
+                print("[AudioTriggerNative-iOS] ❌ Refresh token failed with status \(httpResponse.statusCode)")
+                completion(false)
+            }
+        }.resume()
+    }
+    
     private func sendPing() {
         guard let token = sessionToken, let email = emailUsuario else {
             print("[AudioTriggerNative-iOS] ⚠️ Cannot send ping: missing session token or email")
@@ -1583,17 +1687,27 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     self.lastPingTime = Date()
                     print("[AudioTriggerNative-iOS] 🏓 Ping sent successfully (recording: \(self.isRecording), monitoring: \(!self.isRecording))")
                 } else if httpResponse.statusCode == 401 {
-                    // Token expired - notify JavaScript to handle re-login
-                    print("[AudioTriggerNative-iOS] 🔒 Token expired (401) - notifying JavaScript")
+                    // Token expired - try to refresh
+                    print("[AudioTriggerNative-iOS] 🔒 Token expired (401) - attempting refresh")
                     
-                    // Stop ping timer (no point in continuing)
-                    self.stopPingTimer()
-                    
-                    // Notify JavaScript that session expired
-                    self.notifyEvent("sessionExpired", data: [
-                        "reason": "token_expired",
-                        "message": "Session token expired, please login again"
-                    ])
+                    // Try to refresh token
+                    self.refreshAccessToken { success in
+                        if success {
+                            print("[AudioTriggerNative-iOS] ✅ Token refreshed successfully")
+                            // Token refreshed, next ping will use new token
+                        } else {
+                            print("[AudioTriggerNative-iOS] ❌ Token refresh failed - notifying JavaScript")
+                            
+                            // Stop ping timer (no point in continuing)
+                            self.stopPingTimer()
+                            
+                            // Notify JavaScript that session expired
+                            self.notifyEvent("sessionExpired", data: [
+                                "reason": "refresh_failed",
+                                "message": "Session expired and refresh failed, please login again"
+                            ])
+                        }
+                    }
                 } else {
                     print("[AudioTriggerNative-iOS] ⚠️ Ping returned status \(httpResponse.statusCode)")
                 }
