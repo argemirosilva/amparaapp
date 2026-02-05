@@ -129,6 +129,11 @@ class AudioSegmentUploader {
         // Build multipart body
         var body = Data()
         
+        // Add action field (REQUIRED!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"action\"\r\n\r\n".data(using: .utf8)!)
+        body.append("receberAudioMobile\r\n".data(using: .utf8)!)
+        
         // Add session_token field (CRITICAL!)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"session_token\"\r\n\r\n".data(using: .utf8)!)
