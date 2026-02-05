@@ -71,8 +71,13 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     // Auto-recording on fight detection
     private var autoRecordingActive = false
-    private var postFightTimer: Timer? // 5-minute timer after fight ends
-    private let postFightDuration: TimeInterval = 300.0 // 5 minutes
+    
+    // Discussion ending detection (Android-compatible)
+    private var silenceStartTime: Date? // When silence started
+    private let silenceDecaySeconds: TimeInterval = 10.0 // Confirmation phase
+    private var endHoldTimer: Timer? // 60-second safety buffer timer
+    private let endHoldSeconds: TimeInterval = 60.0 // Safety buffer phase
+    private var inEndHoldPhase = false
     
     // Monitoring periods
     private var monitoringPeriods: [[String: String]] = []
@@ -247,9 +252,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         print("[AudioTriggerNative-iOS] ✅ Stopping recording (origem: \(origemGravacao))")
         
-        // Cancel post-fight timer if stopping auto-recording manually
+        // Cancel end timers if stopping auto-recording manually
         if autoRecordingActive {
-            cancelPostFightTimer()
+            cancelEndTimers()
             autoRecordingActive = false
         }
         
@@ -755,6 +760,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // High score indicates discussion
         if score > 0.7 { // Threshold for fight detection
+            // Cancel silence tracking if discussion resumes
+            if silenceStartTime != nil || inEndHoldPhase {
+                print("[AudioTriggerNative-iOS] 🔊 Discussion resumed! Cancelling end timers")
+                cancelEndTimers()
+            }
+            
             if fightDetectedTime == nil {
                 fightDetectedTime = Date()
             } else if let detectedTime = fightDetectedTime, Date().timeIntervalSince(detectedTime) >= fightDurationThreshold {
@@ -783,43 +794,55 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
         } else {
-            // Normal score
+            // Normal score - handle discussion ending logic
             if isFightDetected {
                 print("[AudioTriggerNative-iOS] OK Fight ended")
                 isFightDetected = false
                 lastFightEndTime = Date() // Start cooldown
                 
-                // Start 5-minute post-fight timer if auto-recording is active
-                if autoRecordingActive {
-                    startPostFightTimer()
-                }
-                
                 // Notify JS
                 notifyEvent("fightEnded", data: [:])
             }
             fightDetectedTime = nil
+            
+            // Discussion ending detection (Android-compatible)
+            if autoRecordingActive && isRecording {
+                // Low score = silence detected
+                if silenceStartTime == nil {
+                    // Start tracking silence
+                    silenceStartTime = Date()
+                    print("[AudioTriggerNative-iOS] 🔇 Silence detected, starting confirmation phase (10s)")
+                } else if let startTime = silenceStartTime {
+                    let silenceDuration = Date().timeIntervalSince(startTime)
+                    
+                    // Check if confirmation phase completed (10s)
+                    if silenceDuration >= silenceDecaySeconds && !inEndHoldPhase {
+                        // Start safety buffer phase (60s)
+                        startEndHoldTimer()
+                    }
+                }
+            }
         }
     }
     
-    // MARK: - Post-Fight Timer
+    // MARK: - Discussion Ending Detection (Android-compatible)
     
-    private func startPostFightTimer() {
-        // Cancel existing timer if any
-        postFightTimer?.invalidate()
-        
-        print("[AudioTriggerNative-iOS] ⏱️ Starting 5-minute post-fight timer")
+    private func startEndHoldTimer() {
+        inEndHoldPhase = true
+        print("[AudioTriggerNative-iOS] ⏱️ Confirmation phase complete (10s), starting safety buffer (60s)")
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            self.postFightTimer = Timer.scheduledTimer(withTimeInterval: self.postFightDuration, repeats: false) { [weak self] _ in
+            self.endHoldTimer = Timer.scheduledTimer(withTimeInterval: self.endHoldSeconds, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
                 
-                print("[AudioTriggerNative-iOS] ⏰ Post-fight timer expired - stopping auto-recording")
+                print("[AudioTriggerNative-iOS] ⏰ Safety buffer complete (60s) - total 70s silence - stopping auto-recording")
                 
                 if self.autoRecordingActive && self.isRecording {
                     self.stopRecordingInternal()
                     self.autoRecordingActive = false
+                    self.cancelEndTimers()
                     
                     // Restart monitoring
                     do {
@@ -833,10 +856,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
-    private func cancelPostFightTimer() {
-        postFightTimer?.invalidate()
-        postFightTimer = nil
-        print("[AudioTriggerNative-iOS] ❌ Post-fight timer cancelled")
+    private func cancelEndTimers() {
+        silenceStartTime = nil
+        endHoldTimer?.invalidate()
+        endHoldTimer = nil
+        inEndHoldPhase = false
+        print("[AudioTriggerNative-iOS] ❌ End timers cancelled (discussion resumed)")
     }
     
     // MARK: - Segment Upload
