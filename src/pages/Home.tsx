@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { Triangle, Menu, LogOut, X, Upload, Calendar, Wifi, WifiOff, Palette, Info, Settings } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -676,17 +677,20 @@ export function HomePage({ onLogout }: HomePageProps) {
                 Enviar arquivo
               </Button>
 
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-3"
-                onClick={() => {
-                  navigate('/icon-selector');
-                  setMenuOpen(false);
-                }}
-              >
-                <Palette className="w-5 h-5" />
-                Alterar ícone do app
-              </Button>
+              {/* Hide icon changer on iOS (not supported) */}
+              {Capacitor.getPlatform() !== 'ios' && (
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3"
+                  onClick={() => {
+                    navigate('/icon-selector');
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Palette className="w-5 h-5" />
+                  Alterar ícone do app
+                </Button>
+              )}
 
               <Button
                 variant="ghost"
