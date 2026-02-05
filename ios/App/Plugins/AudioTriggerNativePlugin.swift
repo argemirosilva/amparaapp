@@ -492,6 +492,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     print("[AudioTriggerNative-iOS] ❌ Failed to upload final segment")
                 }
                 
+                // Cleanup uploader AFTER upload completes
+                self.uploader?.cleanup()
+                self.uploader = nil
+                
                 // Report to server AFTER upload completes
                 self.reportRecordingStatus("finalizada")
                 
@@ -506,10 +510,6 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             notifyEvent("recordingStopped", data: [:])
             print("[AudioTriggerNative-iOS] OK Recording stopped (no uploader)")
         }
-        
-        // Cleanup uploader
-        uploader?.cleanup()
-        uploader = nil
         
         // Stop audio engine
         audioEngine?.stop()
