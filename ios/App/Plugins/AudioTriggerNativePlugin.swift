@@ -618,16 +618,16 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Update state
         isRecording = false
         
-        // Android behavior: Complete detector reset after recording stops
-        print("[AudioTriggerNative-iOS] 🔄 Resetting detector (Android behavior)")
+        // Partial reset: Clear frame buffers but preserve sliding window history
+        print("[AudioTriggerNative-iOS] 🔄 Resetting detector (partial reset)")
         isCalibrated = false
         calibrationSamples = []
         frameBuffer.removeAll()
-        secondsWindow.removeAll()
+        // DO NOT reset secondsWindow - preserve history for immediate score calculation
         speechCount = 0
         loudCount = 0
         currentRmsDb = -100.0
-        // Note: noiseFloor is preserved for next monitoring session
+        // Note: noiseFloor and secondsWindow are preserved for next monitoring session
         
         // Notify JS
         notifyEvent("nativeRecordingStopped", data: [:])
