@@ -1,12 +1,13 @@
 import Foundation
 import AVFoundation
+import SwiftLAME
 
 /**
  * AudioSegmentUploader - Handles audio segment recording and upload
  * 
  * Features:
  * - Records audio to M4A files (AAC codec)
- * - Converts M4A to MP3 using AVFoundation (native, no external dependencies)
+ * - Converts M4A to MP3 using LAME encoder
  * - Uploads segments to server every 30 seconds
  * - Includes timezone in requests
  * - Automatic cleanup of uploaded files
@@ -181,9 +182,8 @@ class AudioSegmentUploader {
         // Add audio file
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         let fileName = fileURL.lastPathComponent
-        let mimeType = fileName.hasSuffix(".mp3") ? "audio/mpeg" : "audio/mp4"
         body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/mpeg\r\n\r\n".data(using: .utf8)!)
         body.append(audioData)
         body.append("\r\n".data(using: .utf8)!)
         
@@ -228,67 +228,34 @@ class AudioSegmentUploader {
         // Delete output file if exists
         try? FileManager.default.removeItem(at: outputURL)
         
-        print("[AudioSegmentUploader] 🔄 Converting M4A to MP3 using AVFoundation")
+        print("[AudioSegmentUploader] 🔄 Converting M4A to MP3 using LAME encoder")
         
-        DispatchQueue.global(qos: .userInitiated).async {
-            guard let inputFile = try? AVAudioFile(forReading: inputURL) else {
-                print("[AudioSegmentUploader] ❌ Failed to open input file")
-                DispatchQueue.main.async { completion(false) }
-                return
+        Task {
+            do {
+                // Configure LAME encoder
+                let config = SwiftLameEncoder.Configuration(
+                    sampleRate: .constant(44100),
+                    bitrateMode: .constant(128),
+                    quality: .mp3Standard
+                )
+                
+                // Create encoder
+                let encoder = try SwiftLameEncoder(
+                    sourceUrl: inputURL,
+                    configuration: config,
+                    destinationUrl: outputURL
+                )
+                
+                // Encode
+                try await encoder.encode(priority: .userInitiated)
+                
+                print("[AudioSegmentUploader] ✅ LAME conversion successful")
+                completion(true)
+                
+            } catch {
+                print("[AudioSegmentUploader] ❌ LAME conversion failed: \(error.localizedDescription)")
+                completion(false)
             }
-            
-            // MP3 settings (128 kbps, 44.1 kHz, stereo)
-            let outputSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEGLayer3,
-                AVSampleRateKey: 44100.0,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 128000
-            ]
-            
-            guard let outputFile = try? AVAudioFile(forWriting: outputURL, settings: outputSettings) else {
-                print("[AudioSegmentUploader] ❌ Failed to create output file")
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-            
-            // Convert format
-            guard let converter = AVAudioConverter(from: inputFile.processingFormat, to: outputFile.processingFormat) else {
-                print("[AudioSegmentUploader] ❌ Failed to create converter")
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-            
-            let inputBuffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: 4096)!
-            
-            while inputFile.framePosition < inputFile.length {
-                do {
-                    try inputFile.read(into: inputBuffer)
-                    
-                    let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFile.processingFormat, frameCapacity: 4096)!
-                    
-                    var error: NSError?
-                    let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-                        outStatus.pointee = .haveData
-                        return inputBuffer
-                    }
-                    
-                    if status == .error {
-                        print("[AudioSegmentUploader] ❌ Conversion error: \(error?.localizedDescription ?? "unknown")")
-                        DispatchQueue.main.async { completion(false) }
-                        return
-                    }
-                    
-                    try outputFile.write(from: outputBuffer)
-                    
-                } catch {
-                    print("[AudioSegmentUploader] ❌ Read/write error: \(error.localizedDescription)")
-                    DispatchQueue.main.async { completion(false) }
-                    return
-                }
-            }
-            
-            print("[AudioSegmentUploader] ✅ Conversion successful")
-            DispatchQueue.main.async { completion(true) }
         }
     }
     
