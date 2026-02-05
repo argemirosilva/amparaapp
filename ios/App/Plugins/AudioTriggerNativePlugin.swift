@@ -77,6 +77,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     // Background task
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundTaskRenewalTimer: Timer?
     
     // Metrics update timer
     private var metricsTimer: Timer?
@@ -454,6 +455,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Start background task
         startBackgroundTask()
         
+        // Start background task renewal timer (renew every 25s)
+        startBackgroundTaskRenewalTimer()
+        
         // Start segment timer
         startSegmentTimer()
         
@@ -497,6 +501,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Stop segment timer
         segmentTimer?.invalidate()
         segmentTimer = nil
+        
+        // Stop background task renewal timer
+        stopBackgroundTaskRenewalTimer()
         
         // Stop background task
         endBackgroundTask()
@@ -814,6 +821,22 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             UIApplication.shared.endBackgroundTask(backgroundTaskID)
             backgroundTaskID = .invalid
         }
+    }
+    
+    private func startBackgroundTaskRenewalTimer() {
+        // Renew background task every 25 seconds (before iOS 30s limit)
+        backgroundTaskRenewalTimer?.invalidate()
+        backgroundTaskRenewalTimer = Timer.scheduledTimer(withTimeInterval: 25.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            print("[AudioTriggerNative-iOS] 🔄 Renewing background task...")
+            self.endBackgroundTask()
+            self.startBackgroundTask()
+        }
+    }
+    
+    private func stopBackgroundTaskRenewalTimer() {
+        backgroundTaskRenewalTimer?.invalidate()
+        backgroundTaskRenewalTimer = nil
     }
     
     // MARK: - Metrics Timer

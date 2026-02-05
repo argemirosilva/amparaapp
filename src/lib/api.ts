@@ -488,7 +488,7 @@ export async function pingMobile(isRecording?: boolean, isMonitoring?: boolean):
     const DeviceInfoExtended = (await import('@/plugins/deviceInfo')).default;
     const deviceInfo = await DeviceInfoExtended.getExtendedInfo();
     
-    return mobileApi<PingResponse>('pingMobile', {
+    const payload = {
       bateria_percentual: deviceInfo.batteryLevel,
       is_charging: deviceInfo.isCharging,
       dispositivo_info: deviceInfo.deviceModel,
@@ -497,7 +497,11 @@ export async function pingMobile(isRecording?: boolean, isMonitoring?: boolean):
       is_monitoring: isMonitoring ?? false,
       timezone: deviceInfo.timezone,
       timezone_offset_minutes: deviceInfo.timezoneOffsetMinutes,
-    });
+    };
+    
+    console.log('[API] pingMobile payload:', JSON.stringify(payload, null, 2));
+    
+    return mobileApi<PingResponse>('pingMobile', payload);
   } catch (error) {
     console.warn('[API] Failed to get device info for ping, sending without it:', error);
     // Fallback: send ping without device info
