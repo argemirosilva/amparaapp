@@ -1,0 +1,358 @@
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
+import { VoiceRecorder } from 'capacitor-voice-recorder';
+import AudioPermission from '@/plugins/audioPermission';
+
+export type PermissionStatus = 'granted' | 'denied' | 'prompt';
+
+export interface PermissionsState {
+  microphone: PermissionStatus;
+  location: PermissionStatus;
+  notification: PermissionStatus;
+}
+
+class PermissionsService {
+  private isNative = Capacitor.isNativePlatform();
+  private microphoneCacheKey = 'ampara_microphone_permission';
+
+  private getCachedMicrophonePermission(): PermissionStatus | null {
+    const cached = localStorage.getItem(this.microphoneCacheKey);
+    if (cached === 'granted' || cached === 'denied' || cached === 'prompt') {
+      return cached;
+    }
+    return null;
+  }
+
+  private setCachedMicrophonePermission(status: PermissionStatus) {
+    localStorage.setItem(this.microphoneCacheKey, status);
+  }
+
+  updateMicrophonePermission(status: PermissionStatus) {
+    if (this.isNative) {
+      this.setCachedMicrophonePermission(status);
+    }
+  }
+
+  /**
+   * Check all required permissions
+   */
+  async checkAll(): Promise<PermissionsState> {
+    const [microphone, location] = await Promise.all([
+      this.checkMicrophone(),
+      this.checkLocation(),
+    ]);
+
+    return { microphone, location };
+  }
+
+  /**
+   * Check microphone permission status
+   */
+  async checkMicrophone(): Promise<PermissionStatus> {
+    try {
+      if (this.isNative) {
+        const cached = this.getCachedMicrophonePermission();
+        if (cached) {
+          return cached;
+        }
+        if (navigator.mediaDevices?.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const hasLabeledInput = devices.some(
+            (device) => device.kind === 'audioinput' && device.label
+          );
+          if (hasLabeledInput) {
+            this.setCachedMicrophonePermission('granted');
+            return 'granted';
+          }
+        }
+      }
+
+      if (!navigator.permissions) {
+        // Fallback: try to access microphone to check permission
+        return 'prompt';
+      }
+
+      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      const mapped = this.mapPermissionState(result.state);
+      if (this.isNative) {
+        this.setCachedMicrophonePermission(mapped);
+      }
+      return mapped;
+    } catch (error) {
+      console.warn('Error checking microphone permission:', error);
+      return 'prompt';
+    }
+  }
+
+  private locationCacheKey = 'ampara_location_permission';
+  private locationCacheTime = 0;
+  private locationCacheDuration = 5000; // 5 seconds
+
+  private getCachedLocationPermission(): PermissionStatus | null {
+    const now = Date.now();
+    if (now - this.locationCacheTime < this.locationCacheDuration) {
+      const cached = localStorage.getItem(this.locationCacheKey);
+      if (cached === 'granted' || cached === 'denied' || cached === 'prompt') {
+        return cached;
+      }
+    }
+    return null;
+  }
+
+  private setCachedLocationPermission(status: PermissionStatus) {
+    localStorage.setItem(this.locationCacheKey, status);
+    this.locationCacheTime = Date.now();
+  }
+
+  /**
+   * Check location permission status
+   */
+  async checkLocation(): Promise<PermissionStatus> {
+    try {
+      // Check cache first to avoid excessive API calls
+      const cached = this.getCachedLocationPermission();
+      if (cached) {
+        console.log('[PermissionsService] Using cached location permission:', cached);
+        return cached;
+      }
+
+      if (this.isNative) {
+        const status = await Geolocation.checkPermissions();
+        const mapped = this.mapCapacitorPermission(status.location);
+        this.setCachedLocationPermission(mapped);
+        return mapped;
+      }
+
+      // Web fallback
+      if (!navigator.permissions) {
+        return 'prompt';
+      }
+
+      const result = await navigator.permissions.query({ name: 'geolocation' });
+      return this.mapPermissionState(result.state);
+    } catch (error) {
+      console.warn('Error checking location permission:', error);
+      return 'prompt';
+    }
+  }
+
+  /**
+   * Request microphone permission
+   */
+  async requestMicrophone(): Promise<boolean> {
+    try {
+      // On native, request RECORD_AUDIO permission at Android level
+      if (this.isNative) {
+        console.log('[PermissionsService] Requesting native RECORD_AUDIO permission...');
+        const result = await AudioPermission.requestPermission();
+        console.log('[PermissionsService] Native permission result:', result.granted);
+        this.setCachedMicrophonePermission(result.granted ? 'granted' : 'denied');
+        return result.granted;
+      }
+      
+      // On web, use getUserMedia
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Stop tracks immediately after getting permission
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (error) {
+      console.error('Microphone permission denied:', error);
+      if (this.isNative) {
+        this.setCachedMicrophonePermission('denied');
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Request location permission
+   */
+  async requestLocation(): Promise<boolean> {
+    try {
+      if (this.isNative) {
+        const status = await Geolocation.requestPermissions();
+        return status.location === 'granted';
+      }
+
+      // Web fallback - request by trying to get position
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          () => resolve(true),
+          () => resolve(false),
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      });
+    } catch (error) {
+      console.error('Location permission denied:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Request all required permissions
+   */
+  async requestAll(): Promise<PermissionsState> {
+    // Request in sequence to avoid overwhelming the user
+    await this.requestMicrophone();
+    await this.requestLocation();
+    
+    // Check final state
+    return this.checkAll();
+  }
+
+  /**
+   * Open app settings (for when permissions are permanently denied)
+   */
+  async openSettings(): Promise<void> {
+    if (this.isNative) {
+      // On native, we can try to open app settings
+      // This requires additional plugin, for now show instructions
+      console.log('Please open app settings manually');
+    }
+  }
+
+  /**
+   * Check if all required permissions are granted
+   */
+  hasAllRequired(state: PermissionsState): boolean {
+    return state.microphone === 'granted' && state.location === 'granted';
+  }
+
+  /**
+   * Map Web Permission API state to our status
+   */
+  private mapPermissionState(state: PermissionState): PermissionStatus {
+    switch (state) {
+      case 'granted':
+        return 'granted';
+      case 'denied':
+        return 'denied';
+      case 'prompt':
+      default:
+        return 'prompt';
+    }
+  }
+
+  /**
+   * Map Capacitor permission status to our status
+   */
+  private mapCapacitorPermission(status: string): PermissionStatus {
+    switch (status) {
+      case 'granted':
+        return 'granted';
+      case 'denied':
+        return 'denied';
+      case 'prompt':
+      case 'prompt-with-rationale':
+      default:
+        return 'prompt';
+    }
+  }
+}
+
+export const permissionsService = new PermissionsService();
+
+// Helper function with timeout
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => {
+      console.warn(`Promise timed out after ${timeoutMs}ms, returning default value`);
+      resolve(defaultValue);
+    }, timeoutMs))
+  ]);
+}
+
+// Convenience exports for direct use
+export async function checkPermissions(): Promise<PermissionsState> {
+  console.log('[checkPermissions] Starting permission check...');
+  
+  const isIOS = Capacitor.getPlatform() === 'ios';
+  
+  // iOS: Usar verificação simplificada para evitar travamento
+  if (isIOS) {
+    console.log('[checkPermissions] iOS detected, using simplified check');
+    
+    let microphone: PermissionStatus = 'prompt';
+    let location: PermissionStatus = 'prompt';
+    
+    // Check microphone via native plugin (verifica diretamente no iOS)
+    try {
+      const result = await withTimeout(
+        AudioPermission.checkPermission(),
+        2000,
+        { granted: false }
+      );
+      microphone = result.granted ? 'granted' : 'prompt';
+      console.log('[checkPermissions] iOS microphone (native):', microphone);
+    } catch (error) {
+      console.warn('[checkPermissions] Error checking microphone:', error);
+    }
+    
+    // Check location via Capacitor
+    try {
+      const status = await withTimeout(
+        Geolocation.checkPermissions(),
+        2000,
+        { location: 'prompt', coarseLocation: 'prompt' }
+      );
+      location = status.location === 'granted' ? 'granted' : 'prompt';
+      console.log('[checkPermissions] iOS location:', location);
+    } catch (error) {
+      console.warn('[checkPermissions] Error checking location:', error);
+    }
+    
+    return { microphone, location, notification: 'prompt' };
+  }
+  
+  // Android: Verificação completa
+  const [microphone, location] = await Promise.all([
+    withTimeout(permissionsService.checkMicrophone(), 3000, 'prompt' as PermissionStatus),
+    withTimeout(permissionsService.checkLocation(), 3000, 'prompt' as PermissionStatus),
+  ]);
+  
+  // Check notification permission
+  let notification: PermissionStatus = 'prompt';
+  try {
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        notification = 'granted';
+      } else if (Notification.permission === 'denied') {
+        notification = 'denied';
+      }
+    }
+  } catch (error) {
+    console.warn('Error checking notification permission:', error);
+  }
+  
+  return { microphone, location, notification };
+}
+
+export async function requestMicrophonePermission(): Promise<PermissionStatus> {
+  const granted = await permissionsService.requestMicrophone();
+  return granted ? 'granted' : 'denied';
+}
+
+export async function requestLocationPermission(): Promise<PermissionStatus> {
+  const granted = await permissionsService.requestLocation();
+  return granted ? 'granted' : 'denied';
+}
+
+export async function requestNotificationPermission(): Promise<PermissionStatus> {
+  try {
+    if (!('Notification' in window)) {
+      console.warn('Notifications not supported');
+      return 'denied';
+    }
+    
+    if (Notification.permission === 'granted') {
+      return 'granted';
+    }
+    
+    const permission = await Notification.requestPermission();
+    return permission === 'granted' ? 'granted' : 'denied';
+  } catch (error) {
+    console.error('Error requesting notification permission:', error);
+    return 'denied';
+  }
+}
