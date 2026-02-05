@@ -39,6 +39,7 @@ export function HomePage({ onLogout }: HomePageProps) {
   const { toast } = useToast();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [, forceUpdate] = useState({});
   
   // Permissions check
@@ -150,11 +151,23 @@ export function HomePage({ onLogout }: HomePageProps) {
       if (event.event === 'nativeRecordingStarted') {
         console.log('[Home] Native recording started:', event.sessionId);
         appState.setStatus('recording');
+        setIsStopping(false);
+      }
+      
+      if (event.event === 'recordingStopping') {
+        console.log('[Home] Recording is stopping - uploading final segment...');
+        setIsStopping(true);
+      }
+      
+      if (event.event === 'recordingStopped') {
+        console.log('[Home] Recording stopped - final segment uploaded');
+        setIsStopping(false);
       }
       
       if (event.event === 'nativeRecordingStopped') {
         console.log('[Home] Native recording stopped:', event.sessionId);
         appState.setStatus('idle');
+        setIsStopping(false);
         toast({
           title: 'Gravação finalizada',
           description: 'Áudio enviado com sucesso',
@@ -509,6 +522,7 @@ export function HomePage({ onLogout }: HomePageProps) {
                     isRecording={recording.isRecording}
                     disabled={false}
                     isLoading={isRecordLoading}
+                    isStopping={isStopping}
                   />
                 )}
               </motion.div>

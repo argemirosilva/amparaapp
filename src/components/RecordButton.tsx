@@ -7,10 +7,11 @@ interface RecordButtonProps {
   isRecording: boolean;
   disabled?: boolean;
   isLoading?: boolean;
+  isStopping?: boolean;
 }
 
-export function RecordButton({ onClick, isRecording, disabled = false, isLoading = false }: RecordButtonProps) {
-  const isDisabled = disabled || isLoading;
+export function RecordButton({ onClick, isRecording, disabled = false, isLoading = false, isStopping = false }: RecordButtonProps) {
+  const isDisabled = disabled || isLoading || isStopping;
   
   return (
     <motion.button
@@ -39,7 +40,7 @@ export function RecordButton({ onClick, isRecording, disabled = false, isLoading
       
       {/* Text */}
       <span className="text-[10px] font-medium leading-tight text-center">
-        {isRecording ? 'Parar' : 'Gravar'}
+        {isStopping ? 'Parando...' : isRecording ? 'Parar' : 'Gravar'}
       </span>
     </motion.button>
   );

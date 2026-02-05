@@ -478,6 +478,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private func stopRecordingInternal() {
         print("[AudioTriggerNative-iOS] 🛑 Stopping recording...")
         
+        // Notify JS that stopping is in progress
+        notifyEvent("recordingStopping", data: [:])
+        
         // Finish and upload last segment
         if let uploader = uploader {
             uploader.finishSegment { [weak self] success in
@@ -492,11 +495,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 // Report to server AFTER upload completes
                 self.reportRecordingStatus("finalizada")
                 
+                // Notify JS that recording is fully stopped
+                self.notifyEvent("recordingStopped", data: [:])
+                
                 print("[AudioTriggerNative-iOS] OK Recording stopped")
             }
         } else {
             // No uploader, report immediately
             reportRecordingStatus("finalizada")
+            notifyEvent("recordingStopped", data: [:])
             print("[AudioTriggerNative-iOS] OK Recording stopped (no uploader)")
         }
         
