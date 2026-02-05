@@ -633,6 +633,73 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
+    // MARK: - DSP Functions (Android-compatible)
+    
+    private func calculateRMSdB(samples: [Float]) -> Double {
+        var sum: Double = 0.0
+        for sample in samples {
+            let normalized = Double(sample) // Already normalized -1.0 to 1.0
+            sum += normalized * normalized
+        }
+        let rms = sqrt(sum / Double(samples.count))
+        
+        if rms > 0 {
+            return 20 * log10(rms)
+        } else {
+            return -100.0 // Silence
+        }
+    }
+    
+    private func calculateZCR(samples: [Float]) -> Double {
+        var crossings = 0
+        for i in 1..<samples.count {
+            if (samples[i-1] >= 0 && samples[i] < 0) || (samples[i-1] < 0 && samples[i] >= 0) {
+                crossings += 1
+            }
+        }
+        return Double(crossings) / Double(samples.count)
+    }
+    
+    private func isSpeechLike(rmsDb: Double, zcr: Double) -> Bool {
+        let vadThreshold = noiseFloor + vadDeltaDb
+        let hasEnergy = rmsDb > vadThreshold
+        let hasVoiceZCR = zcr >= zcrMinVoice && zcr <= zcrMaxVoice
+        return hasEnergy && hasVoiceZCR
+    }
+    
+    private func isLoudFrame(rmsDb: Double) -> Bool {
+        let relativeThreshold = noiseFloor + loudDeltaDb
+        let absoluteThreshold = -20.0
+        let threshold = max(relativeThreshold, absoluteThreshold)
+        return rmsDb > threshold
+    }
+    
+    private func processAggregatedSecond() {
+        // Check if more than 50% of frames were speech/loud
+        let isSpeechAggregated = speechCount > (framesPerSecond / 2)
+        let isLoudAggregated = loudCount > (framesPerSecond / 2)
+        
+        // Add to sliding window
+        secondsWindow.append((isSpeech: isSpeechAggregated, isLoud: isLoudAggregated))
+        if secondsWindow.count > windowSize {
+            secondsWindow.removeFirst()
+        }
+        
+        // Calculate densities (for score)
+        let speechDensity = Double(secondsWindow.filter { $0.isSpeech }.count) / Double(windowSize)
+        let loudDensity = Double(secondsWindow.filter { $0.isLoud }.count) / Double(windowSize)
+        
+        // Calculate discussion score (0.0 to 1.0)
+        let speechNorm = min(speechDensity / speechDensityMin, 1.0)
+        let loudNorm = min(loudDensity / loudDensityMin, 1.0)
+        let discussionScore = (speechNorm + loudNorm) / 2.0
+        
+        // Fight detection (if densities exceed thresholds)
+        if speechDensity >= speechDensityMin && loudDensity >= loudDensityMin {
+            detectFight(score: discussionScore)
+        }
+    }
+    
     private func detectFight(score: Double) {
         // Check if within monitoring period
         let withinPeriod = isWithinMonitoringPeriod()
