@@ -68,7 +68,7 @@ class AudioSegmentUploader {
             return
         }
         
-        // Close audio file
+        // Close audio file and wait for file system to finalize
         audioFile = nil
         
         // Calculate duration
@@ -76,9 +76,32 @@ class AudioSegmentUploader {
         
         print("[AudioSegmentUploader] 📤 Uploading segment \(segmentIndex), duration: \(Int(duration))s")
         
-        // Convert M4A to MP3 before upload
-        let mp3URL = url.deletingPathExtension().appendingPathExtension("mp3")
-        convertM4AtoMP3(inputURL: url, outputURL: mp3URL) { [weak self] convertSuccess in
+        // Wait 200ms for file system to finalize M4A file
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self = self else { return }
+            
+            // Validate M4A file before conversion
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                print("[AudioSegmentUploader] ❌ M4A file not found: \(url.path)")
+                completion(false)
+                return
+            }
+            
+            // Check file size
+            if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let fileSize = attributes[.size] as? Int64 {
+                print("[AudioSegmentUploader] 📊 Input file size: \(fileSize) bytes")
+                
+                if fileSize == 0 {
+                    print("[AudioSegmentUploader] ❌ M4A file is empty")
+                    completion(false)
+                    return
+                }
+            }
+            
+            // Convert M4A to MP3 before upload
+            let mp3URL = url.deletingPathExtension().appendingPathExtension("mp3")
+            self.convertM4AtoMP3(inputURL: url, outputURL: mp3URL) { [weak self] convertSuccess in
             guard let self = self else { return }
             
             if !convertSuccess {
@@ -102,6 +125,7 @@ class AudioSegmentUploader {
                 
                 self.segmentIndex += 1
                 completion(success)
+            }
             }
         }
     }
