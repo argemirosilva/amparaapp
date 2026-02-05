@@ -96,6 +96,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private let segmentDuration: TimeInterval = 30.0 // 30 seconds
     private var uploader: AudioSegmentUploader?
     private var recordingBuffer: AVAudioPCMBuffer?
+    private var stopReason: String = "manual" // Track why recording stopped
     
     // Audio format
     private let sampleRate: Double = 44100.0
@@ -258,6 +259,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             autoRecordingActive = false
         }
         
+        stopReason = "manual"
         stopRecordingInternal()
         
         // Restart monitoring after 1s delay (Android behavior)
@@ -926,6 +928,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 print("[AudioTriggerNative-iOS] ⏰ Safety buffer complete (60s) - total 70s silence - stopping auto-recording")
                 
                 if self.autoRecordingActive && self.isRecording {
+                    self.stopReason = "silencio"
                     self.stopRecordingInternal()
                     self.autoRecordingActive = false
                     self.cancelEndTimers()
@@ -1087,7 +1090,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Add fields specific to "finalizada" status
         if status == "finalizada" {
             body["total_segments"] = segmentIndex
-            body["motivo_parada"] = "manual"
+            body["motivo_parada"] = stopReason
             
             // Calculate duracao_atual_segundos
             if let startTime = recordingStartTime {
