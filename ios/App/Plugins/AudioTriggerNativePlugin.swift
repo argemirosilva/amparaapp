@@ -77,6 +77,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         print("========================================")
         print("\n\n")
         
+        // Enable battery monitoring
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        
         // iOS: start() apenas inicia MONITORAMENTO (calibração + detecção)
         // NÃO inicia gravação automaticamente
         // Gravação só inicia quando:
@@ -591,26 +594,42 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let timezone = TimeZone.current.identifier
         let timezoneOffset = TimeZone.current.secondsFromGMT() / 60  // Convert to minutes
         
-        // Get current timestamp in ISO8601 format
-        let formatter = ISO8601DateFormatter()
-        let timestamp = formatter.string(from: Date())
+        // Get device info
+        let device = UIDevice.current
+        let batteryLevel = Int(device.batteryLevel * 100)
+        let deviceInfo = "\(device.systemName) \(device.systemVersion) - \(device.model)"
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         
-        // Build body JSON matching TypeScript API client
+        // Build body JSON matching API specification
         var body: [String: Any] = [
             "action": "reportarStatusGravacao",
-            "device_id": sessionId,  // Use sessionId as device_id
+            "device_id": sessionId,
             "timezone": timezone,
             "timezone_offset_minutes": timezoneOffset,
             "session_token": token,
             "email_usuario": emailUsuario ?? "",
             "status_gravacao": status,
-            "timestamp": timestamp,
-            "origem_gravacao": origemGravacao
+            "origem_gravacao": origemGravacao,
+            "bateria_percentual": batteryLevel,
+            "dispositivo_info": deviceInfo,
+            "versao_app": appVersion
         ]
         
         // Add segmento_idx if we have sent segments
         if segmentIndex > 0 {
             body["segmento_idx"] = segmentIndex
+        }
+        
+        // Add fields specific to "finalizada" status
+        if status == "finalizada" {
+            body["total_segments"] = segmentIndex
+            body["motivo_parada"] = "manual"
+            
+            // Calculate duracao_atual_segundos
+            if let startTime = recordingStartTime {
+                let duration = Int(Date().timeIntervalSince(startTime))
+                body["duracao_atual_segundos"] = duration
+            }
         }
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
