@@ -203,14 +203,16 @@ export function HomePage({ onLogout }: HomePageProps) {
   // Phase 4: Auto-start audio monitoring on login (keeps app alive 24/7)
   // Only stops on logout
   useEffect(() => {
+    console.log('[Home] 🔍 Auto-start check: hasAllRequired=', hasAllRequired, 'isCapturing=', audioTrigger.isCapturing);
+    
     if (!hasAllRequired) {
-      console.log('[Home] Permissions not granted, skipping auto-start');
+      console.log('[Home] ❌ Permissions not granted, skipping auto-start');
       return;
     }
     
     // Only start if not already capturing (prevents restart on navigation)
     if (audioTrigger.isCapturing) {
-      console.log('[Home] Audio trigger already capturing, skipping auto-start');
+      console.log('[Home] ✅ Audio trigger already capturing, skipping auto-start');
       return;
     }
     
@@ -218,9 +220,12 @@ export function HomePage({ onLogout }: HomePageProps) {
     // - Permission flow gates
     // - Callback validation
     // - Foreground/background transitions
-    console.log('[Home] Phase 4: Auto-starting hybrid audio trigger...');
+    console.log('[Home] 🟢 Phase 4: Auto-starting hybrid audio trigger...');
     const timer = setTimeout(() => {
-      hybridAudioTrigger.start().catch(err => {
+      console.log('[Home] 🚀 Calling hybridAudioTrigger.start() now...');
+      hybridAudioTrigger.start().then(() => {
+        console.log('[Home] ✅ hybridAudioTrigger.start() completed successfully');
+      }).catch(err => {
         console.error('[Home] Failed to auto-start hybrid audio trigger:', err);
         toast({
           title: "Erro ao iniciar monitoramento",
