@@ -598,6 +598,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             "session_token": token,
             "email_usuario": emailUsuario,
             "status": status,
+            "is_recording": (status == "inicio"),
             "segmentos_enviados": segmentIndex,
             "origem_gravacao": origemGravacao,
             "timezone": timezone
