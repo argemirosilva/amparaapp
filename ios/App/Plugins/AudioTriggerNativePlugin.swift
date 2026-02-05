@@ -259,6 +259,18 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         stopRecordingInternal()
+        
+        // Restart monitoring after 1s delay (Android behavior)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
+            do {
+                try self.startMonitoring()
+                print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after manual stop")
+            } catch {
+                print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+            }
+        }
+        
         call.resolve(["success": true, "wasRecording": true])
     }
     
@@ -866,12 +878,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     self.autoRecordingActive = false
                     self.cancelEndTimers()
                     
-                    // Restart monitoring
-                    do {
-                        try self.startMonitoring()
-                        print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after auto-recording")
-                    } catch {
-                        print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+                    // Restart monitoring after 1s delay (ensure audioEngine is fully released)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        guard let self = self else { return }
+                        do {
+                            try self.startMonitoring()
+                            print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after auto-recording")
+                        } catch {
+                            print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+                        }
                     }
                 }
             }
