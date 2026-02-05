@@ -371,6 +371,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         startMetricsTimer()
         
         print("[AudioTriggerNative-iOS] ✅ Monitoring started (calibrating...) - NOT recording")
+        print("[AudioTriggerNative-iOS] 📊 Metrics timer should now be sending audioMetrics every 0.5s")
     }
     
     private func stopMonitoring() {
@@ -901,6 +902,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         var score: Float = 0.0
         if baselineAmplitude > 0 {
             score = min(currentAmplitude / threshold, 1.0)
+        }
+        
+        // DEBUG: Log metrics being sent (every 5 seconds to avoid spam)
+        let now = Date().timeIntervalSince1970
+        if Int(now) % 5 == 0 {
+            print("[AudioTriggerNative-iOS] 📊 Metrics: amplitude=\(currentAmplitude), baseline=\(baselineAmplitude), threshold=\(threshold), score=\(score), calibrated=\(isCalibrated)")
         }
         
         // Determine state
