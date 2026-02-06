@@ -137,11 +137,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Capacitor Methods
     
     @objc func start(_ call: CAPPluginCall) {
-        print("\n\n\n\n\n")
-        print("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-        print("🔴 START() FOI CHAMADO DO JAVASCRIPT! 🔴")
-        print("🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴")
-        print("\n\n\n\n\n")
+        print("[AudioTriggerNative-iOS] 🔴 START() chamado do JavaScript")
         
         // Send notification to JavaScript to show alert
         self.notifyListeners("debugStartCalled", data: ["message": "start() foi chamado!"])
@@ -151,12 +147,6 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Setup audio interruption observers
         setupAudioInterruptionObservers()
-        
-        // iOS: start() apenas inicia MONITORAMENTO (calibração + detecção)
-        // NÃO inicia gravação automaticamente
-        // Gravação só inicia quando:
-        // 1. Usuário clica no botão (startRecording)
-        // 2. Detecção automática de briga (dentro do período)
         
         // Store credentials for future use
         if let token = call.getString("sessionToken") {
@@ -170,7 +160,6 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         // iOS generates and manages device_id internally
-        // No need to receive from JavaScript - iOS is the source of truth
         let deviceId = getOrCreateDeviceId()
         print("[AudioTriggerNative-iOS] 🆔 Using device_id: \(deviceId)")
         
@@ -182,26 +171,44 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 print("[AudioTriggerNative-iOS] OK Microphone permission granted for monitoring")
                 
                 DispatchQueue.main.async {
-                    // Send notification that permission was granted
                     self.notifyListeners("debugPermissionGranted", data: ["message": "Permissão concedida!"])
                     
-                    // Start audio engine for monitoring (calibration + detection)
-                    // but DO NOT start recording
-                    do {
-                        try self.startMonitoring()
-                        
-                        // Send notification that monitoring started
-                        self.notifyListeners("debugMonitoringStarted", data: ["message": "Monitoramento iniciado!"])
-                        
-                        call.resolve(["success": true])
-                    } catch {
-                        print("[AudioTriggerNative-iOS] ❌ Failed to start monitoring: \(error)")
-                        call.reject("Failed to start monitoring: \(error.localizedDescription)")
+                    // Start monitoring with retry (handles stale AVAudioSession after swipe-up kill)
+                    self.startMonitoringWithRetry(maxAttempts: 3, delay: 1.0) { success, error in
+                        if success {
+                            self.notifyListeners("debugMonitoringStarted", data: ["message": "Monitoramento iniciado!"])
+                            call.resolve(["success": true])
+                        } else {
+                            print("[AudioTriggerNative-iOS] ❌ Failed to start monitoring after retries: \(error?.localizedDescription ?? "unknown")")
+                            call.reject("Failed to start monitoring: \(error?.localizedDescription ?? "unknown")")
+                        }
                     }
                 }
             } else {
                 print("[AudioTriggerNative-iOS] ❌ Microphone permission denied")
                 call.reject("Microphone permission denied")
+            }
+        }
+    }
+    
+    /// Attempts to start monitoring with retries and delay between attempts.
+    /// After a swipe-up kill, iOS may keep the AVAudioSession locked briefly.
+    /// Retrying after a short delay gives the OS time to release it.
+    private func startMonitoringWithRetry(maxAttempts: Int, delay: TimeInterval, attempt: Int = 1, completion: @escaping (Bool, Error?) -> Void) {
+        do {
+            try startMonitoring()
+            print("[AudioTriggerNative-iOS] ✅ Monitoring started on attempt \(attempt)")
+            completion(true, nil)
+        } catch {
+            print("[AudioTriggerNative-iOS] ⚠️ Attempt \(attempt)/\(maxAttempts) failed: \(error.localizedDescription)")
+            
+            if attempt < maxAttempts {
+                print("[AudioTriggerNative-iOS] ⏳ Retrying in \(delay)s...")
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.startMonitoringWithRetry(maxAttempts: maxAttempts, delay: delay, attempt: attempt + 1, completion: completion)
+                }
+            } else {
+                completion(false, error)
             }
         }
     }
@@ -1624,13 +1631,14 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Restart audio engine if it stopped
         if audioEngine == nil || audioEngine?.isRunning == false {
-            print("[AudioTriggerNative-iOS] ⚠️ Audio engine stopped - restarting")
+            print("[AudioTriggerNative-iOS] ⚠️ Audio engine stopped - restarting with retry")
             
-            do {
-                try startMonitoring()
-                print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after returning from background")
-            } catch {
-                print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+            startMonitoringWithRetry(maxAttempts: 3, delay: 1.0) { success, error in
+                if success {
+                    print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after returning from background")
+                } else {
+                    print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring after retries: \(error?.localizedDescription ?? "unknown")")
+                }
             }
         }
     }
