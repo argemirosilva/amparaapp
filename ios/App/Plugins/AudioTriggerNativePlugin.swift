@@ -1884,8 +1884,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     private func sendGpsLocation() {
-        guard let token = sessionToken, let email = emailUsuario else {
-            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: missing session token or email")
+        guard let email = emailUsuario else {
+            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: missing email")
             return
         }
         
@@ -1898,17 +1898,37 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Get device ID
         let deviceId = UserDefaults.standard.string(forKey: "device_id") ?? "unknown"
         
-        // Build payload
-        let payload: [String: Any] = [
+        // Get battery info
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
+        let batteryLevel = Int(device.batteryLevel * 100)
+        
+        // Build payload (conforme especificação do backend)
+        var payload: [String: Any] = [
             "action": "enviarLocalizacaoGPS",
-            "session_token": token,
             "email_usuario": email,
             "latitude": location.coordinate.latitude,
             "longitude": location.coordinate.longitude,
-            "precisao_metros": location.horizontalAccuracy,
             "device_id": deviceId,
-            "timestamp": ISO8601DateFormatter().string(from: Date())
+            "timestamp_gps": ISO8601DateFormatter().string(from: location.timestamp)
         ]
+        
+        // Add optional fields
+        if location.horizontalAccuracy >= 0 {
+            payload["precisao_metros"] = location.horizontalAccuracy
+        }
+        
+        if batteryLevel >= 0 {
+            payload["bateria_percentual"] = batteryLevel
+        }
+        
+        if location.speed >= 0 {
+            payload["speed"] = location.speed
+        }
+        
+        if location.course >= 0 {
+            payload["heading"] = Int(location.course)
+        }
         
         // Get API URL from config
         guard let apiUrl = getApiUrl() else {
