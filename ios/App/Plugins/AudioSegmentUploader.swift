@@ -88,6 +88,11 @@ class AudioSegmentUploader: NSObject {
         
         // Start monitoring location
         if servicesEnabled {
+            // Request immediate location first
+            locationManager?.requestLocation()
+            print("[AudioSegmentUploader] 📍 Requesting immediate GPS location")
+            
+            // Then start continuous updates
             locationManager?.startUpdatingLocation()
             print("[AudioSegmentUploader] 📍 GPS started with background updates enabled")
         } else {
