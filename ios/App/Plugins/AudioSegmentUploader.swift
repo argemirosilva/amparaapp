@@ -39,6 +39,7 @@ class AudioSegmentUploader: NSObject {
         self.sessionToken = sessionToken
         self.emailUsuario = emailUsuario
         self.origemGravacao = origemGravacao
+        super.init()
         
         // Setup location manager
         setupLocationManager()
