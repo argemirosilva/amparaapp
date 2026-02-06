@@ -29,6 +29,7 @@ import { useBackgroundServices } from '@/hooks/useBackgroundServices';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { hybridAudioTrigger } from '@/services/hybridAudioTriggerService';
 import { getSessionToken, getRefreshToken, getUserData } from '@/services/sessionService';
+import { getDeviceId } from '@/lib/deviceId';
 import { audioTriggerSingleton } from '@/services/audioTriggerSingleton';
 import { getMonitoringGateStatus } from '@/services/monitoringGateService';
 
@@ -262,18 +263,21 @@ export function HomePage({ onLogout }: HomePageProps) {
       const refreshToken = getRefreshToken();
       const userData = getUserData();
       const emailUsuario = userData ? JSON.parse(userData).email : null;
+      const deviceId = getDeviceId();
       
       console.log('[Home] 🔑 Credentials:', { 
         hasSessionToken: !!sessionToken, 
         hasRefreshToken: !!refreshToken, 
-        emailUsuario 
+        emailUsuario,
+        deviceId
       });
       
-      // Pass credentials to native
+      // Pass credentials and device_id to native
       const config = {
         sessionToken,
         refreshToken,
-        emailUsuario
+        emailUsuario,
+        deviceId
       };
       
       hybridAudioTrigger.start(config).then(() => {

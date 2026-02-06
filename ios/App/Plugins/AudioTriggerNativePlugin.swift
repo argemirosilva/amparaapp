@@ -170,6 +170,13 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             emailUsuario = email
         }
         
+        // Store device_id from JavaScript (to match login device_id)
+        if let deviceId = call.getString("deviceId") {
+            UserDefaults.standard.set(deviceId, forKey: "device_id")
+            UserDefaults.standard.synchronize()
+            print("[AudioTriggerNative-iOS] 🆔 Device ID received from JavaScript: \(deviceId)")
+        }
+        
         // Request microphone permission for monitoring
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
             guard let self = self else { return }
@@ -1862,29 +1869,18 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     private func getOrCreateDeviceId() -> String {
-        // Try to get existing device_id from UserDefaults
+        // Try to get existing device_id from UserDefaults (set by JavaScript)
         if let existingId = UserDefaults.standard.string(forKey: "device_id"), !existingId.isEmpty {
             return existingId
         }
         
-        // Generate new device_id using identifierForVendor (persists across app reinstalls)
-        var deviceId: String
+        // If no device_id exists, this is an error - JavaScript should have provided it
+        // Fallback: generate temporary ID (will be replaced when start() is called with deviceId)
+        let tempId = "ios_temp_\(UUID().uuidString)"
+        print("[AudioTriggerNative-iOS] ⚠️ No device_id found - using temporary: \(tempId)")
+        print("[AudioTriggerNative-iOS] ⚠️ JavaScript should provide device_id in start() call")
         
-        if let vendorId = UIDevice.current.identifierForVendor {
-            // Use vendor UUID (persists unless all apps from same vendor are uninstalled)
-            deviceId = "ios_\(vendorId.uuidString)"
-        } else {
-            // Fallback: generate random UUID (should never happen)
-            deviceId = "ios_\(UUID().uuidString)"
-        }
-        
-        // Save to UserDefaults for future use
-        UserDefaults.standard.set(deviceId, forKey: "device_id")
-        UserDefaults.standard.synchronize()
-        
-        print("[AudioTriggerNative-iOS] 🆔 Generated new device_id: \(deviceId)")
-        
-        return deviceId
+        return tempId
     }
     
     // MARK: - Event Notification
