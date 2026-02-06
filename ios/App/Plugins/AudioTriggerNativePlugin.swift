@@ -1367,10 +1367,11 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let loudThreshold = max(noiseFloor + loudDeltaDb, -20.0)
         
         // DEBUG: Log metrics being sent (every 5 seconds to avoid spam)
-        let now = Date().timeIntervalSince1970
-        if Int(now) % 5 == 0 {
-            print("[AudioTriggerNative-iOS] 📊 Metrics: rmsDb=\(currentRmsDb), noiseFloor=\(noiseFloor), score=\(discussionScore), speechDensity=\(speechDensity), loudDensity=\(loudDensity)")
-        }
+        // Commented out to reduce log noise
+        // let now = Date().timeIntervalSince1970
+        // if Int(now) % 5 == 0 {
+        //     print("[AudioTriggerNative-iOS] 📊 Metrics: rmsDb=\(currentRmsDb), noiseFloor=\(noiseFloor), score=\(discussionScore), speechDensity=\(speechDensity), loudDensity=\(loudDensity)")
+        // }
         
         // Determine state
         var state = "IDLE"
