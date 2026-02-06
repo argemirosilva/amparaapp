@@ -316,6 +316,41 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func updateConfig(_ call: CAPPluginCall) {
         print("[AudioTriggerNative-iOS] 🔧 updateConfig() called")
         
+        // Update credentials if provided
+        var credentialsUpdated = false
+        if let token = call.getString("sessionToken") {
+            sessionToken = token
+            credentialsUpdated = true
+        }
+        if let refresh = call.getString("refreshToken") {
+            refreshToken = refresh
+        }
+        if let email = call.getString("emailUsuario") {
+            emailUsuario = email
+            credentialsUpdated = true
+        }
+        
+        // If credentials were just updated and we're monitoring, start timers
+        if credentialsUpdated && audioEngine != nil && sessionToken != nil && emailUsuario != nil {
+            // Start ping timer if not already running
+            if pingTimer == nil {
+                startPingTimer()
+            }
+            
+            // Setup location manager if not already setup
+            if locationManager == nil {
+                setupLocationManager()
+            }
+            
+            // Start GPS timer if not already running
+            if gpsTimer == nil {
+                let interval = isRecording ? gpsIntervalRecording : gpsIntervalMonitoring
+                startGpsTimer(interval: interval)
+            }
+            
+            print("[AudioTriggerNative-iOS] ✅ Credentials updated, timers started")
+        }
+        
         // Update monitoring periods if provided
         if let periodsArray = call.getArray("monitoringPeriods") {
             // Convert JSArray to [[String: String]]
@@ -466,16 +501,20 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Start metrics update timer
         startMetricsTimer()
         
-        // Start ping timer for background keep-alive
-        startPingTimer()
-        
-        // Setup location manager if not already setup
-        if locationManager == nil {
-            setupLocationManager()
+        // Start ping timer for background keep-alive (only if logged in)
+        if sessionToken != nil && emailUsuario != nil {
+            startPingTimer()
+            
+            // Setup location manager if not already setup
+            if locationManager == nil {
+                setupLocationManager()
+            }
+            
+            // Start GPS timer (1 minute interval during monitoring)
+            startGpsTimer(interval: gpsIntervalMonitoring)
+        } else {
+            print("[AudioTriggerNative-iOS] ⚠️ Skipping ping/GPS timers: user not logged in")
         }
-        
-        // Start GPS timer (1 minute interval during monitoring)
-        startGpsTimer(interval: gpsIntervalMonitoring)
         
         print("[AudioTriggerNative-iOS] ✅ Monitoring started (calibrating...) - NOT recording")
         print("[AudioTriggerNative-iOS] 📊 Metrics timer should now be sending audioMetrics every 0.5s")
