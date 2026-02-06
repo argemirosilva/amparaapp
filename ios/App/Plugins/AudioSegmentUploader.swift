@@ -204,7 +204,7 @@ class AudioSegmentUploader: NSObject {
         // Calculate duration
         let duration = segmentStartTime.map { Date().timeIntervalSince($0) } ?? segmentDuration
         
-        print("[AudioSegmentUploader] 📤 Uploading segment \(segmentIndex), duration: \(Int(duration))s")
+        // print("[AudioSegmentUploader] 📤 Uploading segment \(segmentIndex), duration: \(Int(duration))s")
         
         // Wait 200ms for file system to finalize M4A file
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -248,9 +248,9 @@ class AudioSegmentUploader: NSObject {
                     // Delete both M4A and MP3 files after successful upload
                     try? FileManager.default.removeItem(at: url)
                     try? FileManager.default.removeItem(at: mp3URL)
-                    print("[AudioSegmentUploader] ✅ Segment \(self.segmentIndex) uploaded and deleted")
+                    // print("[AudioSegmentUploader] ✅ Segment \(self.segmentIndex) uploaded and deleted")
                 } else {
-                    print("[AudioSegmentUploader] ❌ Failed to upload segment \(self.segmentIndex)")
+                    // print("[AudioSegmentUploader] ❌ Failed to upload segment \(self.segmentIndex)")
                 }
                 
                 self.segmentIndex += 1
@@ -398,7 +398,7 @@ class AudioSegmentUploader: NSObject {
                 }
                 
                 if httpResponse.statusCode == 200 {
-                    print("[AudioSegmentUploader] ✅ Segment \(segmentIndex) uploaded successfully")
+                    // print("[AudioSegmentUploader] ✅ Segment \(segmentIndex) uploaded successfully")
                     completion(true)
                 } else {
                     print("[AudioSegmentUploader] ❌ Upload failed with status: \(httpResponse.statusCode)")
