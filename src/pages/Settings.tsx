@@ -351,6 +351,7 @@ export default function SettingsPage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}
       >
         <div className="flex items-center gap-3">
           <Button
