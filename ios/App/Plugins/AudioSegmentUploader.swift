@@ -380,6 +380,10 @@ class AudioSegmentUploader: NSObject {
         locationManager?.stopUpdatingLocation()
         locationManager = nil
     }
+    
+    func getCurrentLocation() -> CLLocation? {
+        return currentLocation
+    }
 }
 
 // MARK: - CLLocationManagerDelegate

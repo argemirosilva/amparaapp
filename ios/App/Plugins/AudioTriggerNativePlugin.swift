@@ -1,6 +1,7 @@
 import Foundation
 import Capacitor
 import AVFoundation
+import CoreLocation
 
 /**
  * AudioTriggerNativePlugin - iOS Native Audio Recording & Fight Detection
@@ -126,6 +127,13 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // Audio interruption handling
     private var wasRecordingBeforeInterruption = false
     private var wasMonitoringBeforeInterruption = false
+    
+    // GPS location timer
+    private var gpsTimer: Timer?
+    private var gpsIntervalMonitoring: TimeInterval = 60.0 // 1 minute during monitoring
+    private var gpsIntervalRecording: TimeInterval = 10.0 // 10 seconds during recording/panic
+    private var locationManager: CLLocationManager?
+    private var currentLocation: CLLocation?
     
     // MARK: - Capacitor Methods
     
@@ -461,6 +469,14 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Start ping timer for background keep-alive
         startPingTimer()
         
+        // Setup location manager if not already setup
+        if locationManager == nil {
+            setupLocationManager()
+        }
+        
+        // Start GPS timer (1 minute interval during monitoring)
+        startGpsTimer(interval: gpsIntervalMonitoring)
+        
         print("[AudioTriggerNative-iOS] ✅ Monitoring started (calibrating...) - NOT recording")
         print("[AudioTriggerNative-iOS] 📊 Metrics timer should now be sending audioMetrics every 0.5s")
     }
@@ -473,6 +489,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Stop ping timer
         stopPingTimer()
+        
+        // Stop GPS timer
+        stopGpsTimer()
         
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -591,6 +610,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Report to server
         reportRecordingStatus("iniciada")
         
+        // Restart GPS timer with 10-second interval during recording
+        startGpsTimer(interval: gpsIntervalRecording)
+        
         let sid = sessionId ?? ""
         print("[AudioTriggerNative-iOS] OK Recording started, sessionId: \(sid)")
     }
@@ -648,6 +670,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Update state
         isRecording = false
+        
+        // Restart GPS timer with 1-minute interval (back to monitoring mode)
+        startGpsTimer(interval: gpsIntervalMonitoring)
         
         // Partial reset: Clear frame buffers but preserve sliding window history
         print("[AudioTriggerNative-iOS] 🔄 Resetting detector (partial reset)")
@@ -1782,6 +1807,138 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         eventData["event"] = event
         
         notifyListeners("audioTriggerEvent", data: eventData)
+    }
+    
+    // MARK: - GPS Location Timer
+    
+    private func startGpsTimer(interval: TimeInterval) {
+        // Stop existing timer if any
+        stopGpsTimer()
+        
+        // Send immediate location
+        sendGpsLocation()
+        
+        // Create timer on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.gpsTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+                self?.sendGpsLocation()
+            }
+            
+            print("[AudioTriggerNative-iOS] 📍 GPS timer started (interval: \(interval)s)")
+        }
+    }
+    
+    private func stopGpsTimer() {
+        gpsTimer?.invalidate()
+        gpsTimer = nil
+        print("[AudioTriggerNative-iOS] ⏹️ GPS timer stopped")
+    }
+    
+    private func sendGpsLocation() {
+        guard let token = sessionToken, let email = emailUsuario else {
+            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: missing session token or email")
+            return
+        }
+        
+        // Get current location
+        guard let location = currentLocation else {
+            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: no location available")
+            return
+        }
+        
+        // Build payload
+        let payload: [String: Any] = [
+            "action": "enviarLocalizacao",
+            "session_token": token,
+            "email_usuario": email,
+            "latitude": location.coordinate.latitude,
+            "longitude": location.coordinate.longitude,
+            "precisao_metros": location.horizontalAccuracy,
+            "is_recording": isRecording,
+            "origem": isRecording ? "gravacao" : "monitoramento"
+        ]
+        
+        // Get API URL from config
+        guard let apiUrl = getApiUrl() else {
+            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: API URL not configured")
+            return
+        }
+        
+        // Create request
+        guard let url = URL(string: apiUrl) else {
+            print("[AudioTriggerNative-iOS] ❌ Invalid API URL: \(apiUrl)")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        } catch {
+            print("[AudioTriggerNative-iOS] ❌ Failed to serialize GPS payload: \(error)")
+            return
+        }
+        
+        // Send request (background-safe)
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("[AudioTriggerNative-iOS] ❌ GPS send failed: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                if httpResponse.statusCode == 200 {
+                    print("[AudioTriggerNative-iOS] ✅ GPS location sent: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude)")
+                } else {
+                    print("[AudioTriggerNative-iOS] ⚠️ GPS send returned status \(httpResponse.statusCode)")
+                }
+            }
+        }
+        task.resume()
+    }
+    
+    private func setupLocationManager() {
+        locationManager = CLLocationManager()
+        locationManager?.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager?.distanceFilter = 10 // Update every 10 meters
+        locationManager?.delegate = self
+        
+        // Enable background location updates
+        locationManager?.allowsBackgroundLocationUpdates = true
+        locationManager?.pausesLocationUpdatesAutomatically = false
+        locationManager?.showsBackgroundLocationIndicator = true
+        
+        // Request location permission
+        let authStatus = CLLocationManager.authorizationStatus()
+        if authStatus == .notDetermined {
+            locationManager?.requestAlwaysAuthorization()
+            print("[AudioTriggerNative-iOS] 📍 Requesting GPS permission (Always)")
+        }
+        
+        // Start monitoring location
+        if CLLocationManager.locationServicesEnabled() {
+            locationManager?.startUpdatingLocation()
+            print("[AudioTriggerNative-iOS] 📍 GPS started with background updates enabled")
+        }
+    }
+}
+
+// MARK: - CLLocationManagerDelegate
+
+extension AudioTriggerNativePlugin: CLLocationManagerDelegate {
+    public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        if let location = locations.last {
+            currentLocation = location
+            print("[AudioTriggerNative-iOS] 📍 GPS updated: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude), accuracy=\(location.horizontalAccuracy)m")
+        }
+    }
+    
+    public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("[AudioTriggerNative-iOS] ⚠️ GPS error: \(error.localizedDescription)")
     }
 }
 
