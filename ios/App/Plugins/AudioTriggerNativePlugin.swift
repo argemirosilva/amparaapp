@@ -607,6 +607,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             origemGravacao: origemGravacao
         )
         
+        // Set plugin reference so uploader can share GPS location
+        uploader?.plugin = self
+        
         // Start first segment
         try uploader?.startNewSegment(format: recordingFormat)
         
@@ -1874,6 +1877,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         gpsTimer?.invalidate()
         gpsTimer = nil
         print("[AudioTriggerNative-iOS] ⏹️ GPS timer stopped")
+    }
+    
+    // Called by AudioSegmentUploader when GPS location is updated
+    func updateLocation(_ location: CLLocation) {
+        currentLocation = location
+        print("[AudioTriggerNative-iOS] 📍 GPS location received from uploader: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude)")
     }
     
     private func sendGpsLocation() {

@@ -32,6 +32,9 @@ class AudioSegmentUploader: NSObject {
     private var locationManager: CLLocationManager?
     private var currentLocation: CLLocation?
     
+    // Reference to plugin to share GPS location
+    weak var plugin: AudioTriggerNativePlugin?
+    
     // MARK: - Initialization
     
     init(sessionId: String, sessionToken: String, emailUsuario: String, origemGravacao: String) {
@@ -487,6 +490,9 @@ extension AudioSegmentUploader: CLLocationManagerDelegate {
         if let location = locations.last {
             currentLocation = location
             print("[AudioSegmentUploader] 📍 GPS updated: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude), accuracy=\(location.horizontalAccuracy)m")
+            
+            // Share location with AudioTriggerNativePlugin
+            plugin?.updateLocation(location)
         } else {
             print("[AudioSegmentUploader] ⚠️ didUpdateLocations called but locations array is empty")
         }
