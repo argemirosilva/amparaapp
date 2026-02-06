@@ -1850,14 +1850,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Build payload
         let payload: [String: Any] = [
-            "action": "enviarLocalizacao",
+            "action": "enviarLocalizacaoGPS",
             "session_token": token,
             "email_usuario": email,
             "latitude": location.coordinate.latitude,
             "longitude": location.coordinate.longitude,
-            "precisao_metros": location.horizontalAccuracy,
-            "is_recording": isRecording,
-            "origem": isRecording ? "gravacao" : "monitoramento"
+            "timestamp": ISO8601DateFormatter().string(from: Date())
         ]
         
         // Get API URL from config
