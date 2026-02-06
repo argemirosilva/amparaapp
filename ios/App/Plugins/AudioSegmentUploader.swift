@@ -41,8 +41,10 @@ class AudioSegmentUploader: NSObject {
         self.origemGravacao = origemGravacao
         super.init()
         
-        // Setup location manager
-        setupLocationManager()
+        // Setup location manager (MUST be on main thread for CLLocationManager)
+        DispatchQueue.main.async { [weak self] in
+            self?.setupLocationManager()
+        }
     }
     
     private func setupLocationManager() {
@@ -121,38 +123,42 @@ class AudioSegmentUploader: NSObject {
         authPollingCount = 0
         authPollingTimer?.invalidate()
         
-        authPollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
-            guard let self = self else {
-                timer.invalidate()
-                return
-            }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             
-            self.authPollingCount += 1
-            let currentStatus = CLLocationManager.authorizationStatus()
-            
-            print("[AudioSegmentUploader] 🔍 Polling authorization status (\(self.authPollingCount)/10): \(currentStatus.rawValue)")
-            
-            // Check if authorization changed from notDetermined
-            if currentStatus != .notDetermined {
-                print("[AudioSegmentUploader] 🔍 Authorization changed detected!")
-                timer.invalidate()
-                self.authPollingTimer = nil
-                
-                // Manually trigger what didChangeAuthorization should have done
-                if currentStatus == .authorizedAlways || currentStatus == .authorizedWhenInUse {
-                    print("[AudioSegmentUploader] 🔍 Starting GPS after authorization")
-                    self.startGPSUpdates()
-                } else {
-                    print("[AudioSegmentUploader] 🔍 Authorization denied or restricted")
+            self.authPollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+                guard let self = self else {
+                    timer.invalidate()
+                    return
                 }
-                return
-            }
-            
-            // Stop polling after 10 attempts (10 seconds)
-            if self.authPollingCount >= 10 {
-                print("[AudioSegmentUploader] 🔍 Polling timeout - authorization still not determined")
-                timer.invalidate()
-                self.authPollingTimer = nil
+                
+                self.authPollingCount += 1
+                let currentStatus = CLLocationManager.authorizationStatus()
+                
+                print("[AudioSegmentUploader] 🔍 Polling authorization status (\(self.authPollingCount)/30): \(currentStatus.rawValue)")
+                
+                // Check if authorization changed from notDetermined
+                if currentStatus != .notDetermined {
+                    print("[AudioSegmentUploader] 🔍 Authorization changed detected! Status: \(currentStatus.rawValue)")
+                    timer.invalidate()
+                    self.authPollingTimer = nil
+                    
+                    // Manually trigger what didChangeAuthorization should have done
+                    if currentStatus == .authorizedAlways || currentStatus == .authorizedWhenInUse {
+                        print("[AudioSegmentUploader] 🔍 Starting GPS after authorization")
+                        self.startGPSUpdates()
+                    } else {
+                        print("[AudioSegmentUploader] 🔍 Authorization denied or restricted")
+                    }
+                    return
+                }
+                
+                // Stop polling after 30 attempts (30 seconds - user may take time to respond)
+                if self.authPollingCount >= 30 {
+                    print("[AudioSegmentUploader] 🔍 Polling timeout - authorization still not determined")
+                    timer.invalidate()
+                    self.authPollingTimer = nil
+                }
             }
         }
     }
