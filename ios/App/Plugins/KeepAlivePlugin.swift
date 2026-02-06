@@ -122,7 +122,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func sendPingToBackend(token: String, payload: [String: Any]) {
         // URL do backend (usar mesma do Android)
-        guard let url = URL(string: "https://xxxxxxxxxxxxxxxxx.supabase.co/functions/v1/mobile-api/pingMobile") else {
+        guard let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api") else {
             CAPLog.print("❌ Invalid ping URL")
             return
         }
@@ -179,7 +179,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
         
         let deviceId = UserDefaults.standard.string(forKey: "ampara_device_id") ?? "ios-unknown"
         
-        guard let url = URL(string: "https://xxxxxxxxxxxxxxxxx.supabase.co/functions/v1/mobile-api/refresh_token") else {
+        guard let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api") else {
             return
         }
         
