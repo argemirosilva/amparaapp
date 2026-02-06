@@ -1354,6 +1354,21 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             object: AVAudioSession.sharedInstance()
         )
         
+        // Observe app lifecycle (background/foreground)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppWillResignActive(_:)),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActive(_:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        
         print("[AudioTriggerNative-iOS] 🔔 Audio interruption observers setup")
     }
     
@@ -1368,6 +1383,18 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             self,
             name: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance()
+        )
+        
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
         )
         
         print("[AudioTriggerNative-iOS] 🔕 Audio interruption observers removed")
@@ -1479,6 +1506,27 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             
         default:
             break
+        }
+    }
+    
+    @objc private func handleAppWillResignActive(_ notification: Notification) {
+        print("[AudioTriggerNative-iOS] 🔹 App will resign active (going to background/lock)")
+        // Don't stop anything - background audio should continue
+    }
+    
+    @objc private func handleAppDidBecomeActive(_ notification: Notification) {
+        print("[AudioTriggerNative-iOS] 🔸 App did become active (returning from background/lock)")
+        
+        // Restart audio engine if it stopped
+        if audioEngine == nil || audioEngine?.isRunning == false {
+            print("[AudioTriggerNative-iOS] ⚠️ Audio engine stopped - restarting")
+            
+            do {
+                try startMonitoring()
+                print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after returning from background")
+            } catch {
+                print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+            }
         }
     }
     
