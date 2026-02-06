@@ -1987,14 +1987,46 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
 extension AudioTriggerNativePlugin: CLLocationManagerDelegate {
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        print("[AudioTriggerNative-iOS] 📡 didUpdateLocations called with \(locations.count) location(s)")
         if let location = locations.last {
             currentLocation = location
             print("[AudioTriggerNative-iOS] 📍 GPS updated: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude), accuracy=\(location.horizontalAccuracy)m")
+        } else {
+            print("[AudioTriggerNative-iOS] ⚠️ didUpdateLocations called but locations array is empty")
         }
     }
     
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("[AudioTriggerNative-iOS] ⚠️ GPS error: \(error.localizedDescription)")
+        print("[AudioTriggerNative-iOS] ❌ GPS error: \(error.localizedDescription)")
+        print("[AudioTriggerNative-iOS] ❌ Error code: \((error as NSError).code)")
+    }
+    
+    public func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        print("[AudioTriggerNative-iOS] 🔐 GPS authorization changed: \(status.rawValue)")
+        switch status {
+        case .notDetermined:
+            print("[AudioTriggerNative-iOS] 🔐 Status: Not Determined")
+        case .restricted:
+            print("[AudioTriggerNative-iOS] 🔐 Status: Restricted")
+        case .denied:
+            print("[AudioTriggerNative-iOS] 🔐 Status: Denied")
+        case .authorizedAlways:
+            print("[AudioTriggerNative-iOS] 🔐 Status: Authorized Always")
+            // Restart location updates if authorized
+            if CLLocationManager.locationServicesEnabled() {
+                locationManager?.startUpdatingLocation()
+                print("[AudioTriggerNative-iOS] 📍 Restarted GPS updates after authorization")
+            }
+        case .authorizedWhenInUse:
+            print("[AudioTriggerNative-iOS] 🔐 Status: Authorized When In Use")
+            // Restart location updates
+            if CLLocationManager.locationServicesEnabled() {
+                locationManager?.startUpdatingLocation()
+                print("[AudioTriggerNative-iOS] 📍 Restarted GPS updates after authorization")
+            }
+        @unknown default:
+            print("[AudioTriggerNative-iOS] 🔐 Status: Unknown (\(status.rawValue))")
+        }
     }
 }
 

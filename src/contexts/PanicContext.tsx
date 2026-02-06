@@ -213,13 +213,18 @@ export function PanicProvider({ children }: { children: React.ReactNode }) {
     const lat = position?.latitude ?? 0;
     const lng = position?.longitude ?? 0;
     
-    // Start recording with panic origin
-    await startRecording('botao_panico');
+    // Start recording with panic origin (non-blocking - don't fail if recording fails)
+    try {
+      await startRecording('botao_panico');
+      console.log('[PanicContext] ✅ Recording started successfully');
+    } catch (error) {
+      console.error('[PanicContext] ⚠️ Failed to start recording, but panic will continue:', error);
+    }
 
     // Enable panic mode location tracking (30s intervals)
     location.startTracking(true);
 
-    // Notify server
+    // Notify server (MUST succeed)
     const result = await acionarPanicoMobile(lat, lng, tipo);
 
     const panicStartTime = Date.now();
