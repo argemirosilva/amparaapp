@@ -23,7 +23,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
     var window: UIWindow?
     var bridgeViewController: CAPBridgeViewController?
     private var loadingTimeoutTimer: Timer?
-    private var isObservingProgress = false
+    private var progressCheckTimer: Timer?
 
     private func logBundlePublicContents() {
         if let publicURL = Bundle.main.url(forResource: "public", withExtension: nil) {
@@ -88,21 +88,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
             print("[SceneDelegate] ℹ️ bridgeVC.webView not available yet")
         }
 
-        // Configura navigation delegate e função de retry
-        let trySwitchToBridge: () -> Void = { [weak self] in
-            guard let self = self else { return }
-            if let webView = bridgeVC.bridge?.webView as? WKWebView {
-                webView.navigationDelegate = self
-                webView.reload()
-            }
-        }
-
         if let webView = bridgeVC.bridge?.webView as? WKWebView {
             webView.navigationDelegate = self
         }
 
-        // 3) Aguarda a webView carregar antes de trocar do placeholder (com timeout de segurança)
+        // 3) Aguarda a webView carregar antes de trocar do placeholder
         func switchToBridge() {
+            // Invalidate all timers
+            self.loadingTimeoutTimer?.invalidate()
+            self.loadingTimeoutTimer = nil
+            self.progressCheckTimer?.invalidate()
+            self.progressCheckTimer = nil
+            
             print("[SceneDelegate] 🔄 Switching to bridge rootViewController")
             UIView.transition(with: window, duration: 0.25, options: .transitionCrossDissolve, animations: {
                 window.rootViewController = bridgeVC
@@ -120,24 +117,27 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
             switchToBridge()
         }
 
-        // Observa progresso da webView se disponível
+        // Usa timer polling em vez de KVO (evita crash de removeObserver)
         if let webView = bridgeVC.bridge?.webView as? WKWebView {
-            // Se já não estiver carregando, troca imediatamente
             if webView.estimatedProgress >= 0.8 || webView.isLoading == false {
                 print("[SceneDelegate] ✅ WebView já carregada o suficiente, trocando para bridge")
-                self.loadingTimeoutTimer?.invalidate()
                 switchToBridge()
             } else {
-                print("[SceneDelegate] ⏳ Aguardando WebView carregar...")
-                webView.addObserver(self, forKeyPath: "estimatedProgress", options: .new, context: nil)
-                self.isObservingProgress = true
+                print("[SceneDelegate] ⏳ Aguardando WebView carregar (polling)...")
+                self.progressCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] timer in
+                    guard let self = self else { timer.invalidate(); return }
+                    guard let wv = self.bridgeViewController?.bridge?.webView as? WKWebView else { return }
+                    if wv.estimatedProgress >= 0.8 {
+                        print("[SceneDelegate] ✅ WebView atingiu progresso suficiente via polling")
+                        switchToBridge()
+                    }
+                }
             }
         } else {
             // Fallback: se não conseguir acessar a webView, usa pequeno atraso
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self = self else { return }
                 print("[SceneDelegate] ℹ️ WebView não disponível ainda, trocando para bridge por fallback")
-                self.loadingTimeoutTimer?.invalidate()
                 switchToBridge()
             }
         }
@@ -145,7 +145,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
 
     private func registerPluginsWithRetry(retryCount: Int = 5, delay: TimeInterval = 0.4) {
         print("[SceneDelegate] 🔧 registerPluginsWithRetry called")
-        // Ensure the bridge is ready before registering plugins
         guard let bridge = bridgeViewController?.bridge as? CapacitorBridge else {
             print("[SceneDelegate] ⏳ Bridge not ready, will retry (remaining: \(retryCount))")
             if retryCount > 0 {
@@ -160,37 +159,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
         print("[SceneDelegate] ✅ Plugins registered")
     }
 
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        guard keyPath == "estimatedProgress", let webView = object as? WKWebView else { return }
-        logWebViewState(webView, context: "KVO estimatedProgress")
-        if webView.estimatedProgress >= 0.8 {
-            print("[SceneDelegate] ✅ WebView atingiu progresso suficiente (")
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self, let window = self.window, let bridgeVC = self.bridgeViewController else { return }
-                self.loadingTimeoutTimer?.invalidate()
-                // Remover observer para evitar múltiplas chamadas
-                if self.isObservingProgress {
-                    webView.removeObserver(self, forKeyPath: "estimatedProgress")
-                    self.isObservingProgress = false
-                }
-                print("[SceneDelegate] 🔄 Switching to bridge rootViewController")
-                UIView.transition(with: window, duration: 0.25, options: .transitionCrossDissolve, animations: {
-                    window.rootViewController = bridgeVC
-                }, completion: { _ in
-                    print("[SceneDelegate] ✅ Switched to bridge rootViewController")
-                    self.registerPluginsWithRetry()
-                })
-            }
-        }
-    }
-
     func sceneDidDisconnect(_ scene: UIScene) {
-        if isObservingProgress, let webView = bridgeViewController?.bridge?.webView as? WKWebView {
-            webView.removeObserver(self, forKeyPath: "estimatedProgress")
-            isObservingProgress = false
-        }
+        // Cleanup timers
         loadingTimeoutTimer?.invalidate()
         loadingTimeoutTimer = nil
+        progressCheckTimer?.invalidate()
+        progressCheckTimer = nil
         
         // Release AVAudioSession to prevent microphone lock on next launch
         print("[SceneDelegate] 🚨 Scene disconnecting - releasing audio session")
@@ -223,6 +197,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
             guard let self = self, let window = self.window, let bridgeVC = self.bridgeViewController else { return }
             if window.rootViewController !== bridgeVC {
                 print("[SceneDelegate] 🔄 Switching to bridge rootViewController")
+                // Cleanup timers
+                self.loadingTimeoutTimer?.invalidate()
+                self.loadingTimeoutTimer = nil
+                self.progressCheckTimer?.invalidate()
+                self.progressCheckTimer = nil
+                
                 UIView.transition(with: window, duration: 0.25, options: .transitionCrossDissolve, animations: {
                     window.rootViewController = bridgeVC
                 }, completion: { _ in
@@ -253,4 +233,3 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
         }
     }
 }
-
