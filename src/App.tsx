@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { LoginPage } from "./pages/Login";
-import { SplashPage } from "./pages/Splash";
+
 import { HomePage } from "./pages/Home";
 
 import { Preferences } from '@capacitor/preferences';
@@ -40,7 +40,7 @@ const App = () => {
   // Start with null to indicate "loading" state
   const [authState, setAuthState] = useState<boolean | null>(null);
   const [servicesInitialized, setServicesInitialized] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+
 
 
   // Initialize session service and check auth
@@ -246,9 +246,7 @@ const App = () => {
         <Sonner />
         <PermissionGuard>
           <BrowserRouter>
-            {showSplash ? (
-              <SplashPage onComplete={() => setShowSplash(false)} />
-            ) : !authState ? (
+            {!authState ? (
             <Routes>
               <Route path="/" element={<LoginPage onLoginSuccess={handleLoginSuccess} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
