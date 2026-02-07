@@ -26,7 +26,7 @@ import AboutPage from "./pages/About";
 import SettingsPage from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { PanicProvider } from "./contexts/PanicContext";
-import { PermissionGuard } from "./components/PermissionGuard";
+
 import { LocationPermissionRequest } from "./components/LocationPermissionRequest";
 import { Capacitor } from '@capacitor/core';
 import KeepAlive from '@/plugins/keepAlive';
@@ -244,8 +244,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <PermissionGuard>
-          <BrowserRouter>
+        <BrowserRouter>
             {!authState ? (
             <Routes>
               <Route path="/" element={<LoginPage onLoginSuccess={handleLoginSuccess} />} />
@@ -269,8 +268,7 @@ const App = () => {
               </Routes>
             </PanicProvider>
           )}
-          </BrowserRouter>
-        </PermissionGuard>
+        </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );
