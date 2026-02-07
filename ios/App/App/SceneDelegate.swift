@@ -2,12 +2,26 @@ import UIKit
 import Capacitor
 import AVFoundation
 
+/// Wrapper class to act as KVO observer for WKWebView's estimatedProgress.
+/// This prevents crashes when the system tries to remove observers during teardown.
+private class WebViewProgressObserver: NSObject {
+    override func observeValue(forKeyPath keyPath: String?,
+                               of object: Any?,
+                               change: [NSKeyValueChangeKey : Any]?,
+                               context: UnsafeMutableRawPointer?) {
+        // Intentionally empty – exists solely to prevent crash
+    }
+    
+    deinit {
+        // No cleanup needed – observer removal is handled externally
+    }
+}
+
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
     var bridgeViewController: CAPBridgeViewController?
-    /// Tracks whether we added a KVO observer so we can safely remove it.
-    private var isObservingProgress = false
+    private var progressObserver: WebViewProgressObserver?
 
     func scene(_ scene: UIScene,
                willConnectTo session: UISceneSession,
@@ -31,31 +45,34 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Register plugins once bridge is ready
         registerPluginsWithRetry()
         
-        // Proactively register as KVO observer AFTER a short delay
-        // to ensure webView is initialized by Capacitor.
+        // Add KVO observer with delay to ensure webView is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.addProgressObserverIfNeeded()
         }
     }
 
-    // MARK: - KVO (exists solely to prevent crash on teardown)
+    // MARK: - KVO Management
 
     private func addProgressObserverIfNeeded() {
-        guard !isObservingProgress,
+        guard progressObserver == nil,
               let webView = bridgeViewController?.bridge?.webView else {
-            print("[SceneDelegate] ⚠️ WebView not ready for KVO observer")
+            print("[SceneDelegate] ⚠️ WebView not ready or observer already exists")
             return
         }
-        webView.addObserver(self, forKeyPath: "estimatedProgress", options: .new, context: nil)
-        isObservingProgress = true
+        
+        let observer = WebViewProgressObserver()
+        webView.addObserver(observer, forKeyPath: "estimatedProgress", options: .new, context: nil)
+        progressObserver = observer
         print("[SceneDelegate] 🔗 KVO observer added proactively")
     }
 
-    override func observeValue(forKeyPath keyPath: String?,
-                               of object: Any?,
-                               change: [NSKeyValueChangeKey : Any]?,
-                               context: UnsafeMutableRawPointer?) {
-        // intentionally empty – we only observe to keep the registration alive
+    private func removeProgressObserverIfNeeded() {
+        guard let observer = progressObserver,
+              let webView = bridgeViewController?.bridge?.webView else { return }
+        
+        webView.removeObserver(observer, forKeyPath: "estimatedProgress")
+        progressObserver = nil
+        print("[SceneDelegate] 🔓 KVO observer removed safely")
     }
 
     // MARK: - Scene lifecycle
@@ -78,14 +95,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidEnterBackground(_ scene: UIScene) { }
 
     // MARK: - Helpers
-
-    private func removeProgressObserverIfNeeded() {
-        guard isObservingProgress,
-              let webView = bridgeViewController?.bridge?.webView else { return }
-        webView.removeObserver(self, forKeyPath: "estimatedProgress")
-        isObservingProgress = false
-        print("[SceneDelegate] 🔓 KVO observer removed safely")
-    }
 
     private func registerPluginsWithRetry(retryCount: Int = 5, delay: TimeInterval = 0.4) {
         guard let bridge = bridgeViewController?.bridge as? CapacitorBridge else {
