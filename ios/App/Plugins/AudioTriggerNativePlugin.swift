@@ -79,12 +79,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // Discussion ending detection (Android-compatible)
     private var silenceStartTime: Date? // When silence started
     private let silenceDecaySeconds: TimeInterval = 10.0 // Confirmation phase
-    private var endHoldTimer: Timer? // 60-second safety buffer timer
+    private var endHoldTimer: DispatchSourceTimer? // 60-second safety buffer timer
     private let endHoldSeconds: TimeInterval = 60.0 // Safety buffer phase
     private var inEndHoldPhase = false
     
     // Absolute silence timeout (fallback - 10 minutes)
-    private var absoluteSilenceTimer: Timer?
+    private var absoluteSilenceTimer: DispatchSourceTimer?
     private let absoluteSilenceTimeout: TimeInterval = 600.0 // 10 minutes
     
     // Monitoring periods
@@ -96,7 +96,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private let calibrationUpdateInterval: TimeInterval = 300.0 // 5 minutes
     
     // Ping/Heartbeat (background keep-alive)
-    private var pingTimer: Timer?
+    private var pingTimer: DispatchSourceTimer?
     private let pingInterval: TimeInterval = 30.0 // 30 seconds
     private var lastPingTime: Date?
     private var recentAmplitudes: [Float] = []
@@ -105,7 +105,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // Recording state
     private var recordingStartTime: Date?
     private var segmentIndex = 0
-    private var segmentTimer: Timer?
+    private var segmentTimer: DispatchSourceTimer?
     private let segmentDuration: TimeInterval = 30.0 // 30 seconds
     private var uploader: AudioSegmentUploader?
     private var recordingBuffer: AVAudioPCMBuffer?
@@ -117,9 +117,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     // Background task
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    private var backgroundTaskRenewalTimer: Timer?
+    private var backgroundTaskRenewalTimer: DispatchSourceTimer?
     
-    // Metrics update timer
+    // Metrics update timer (UI-only, doesn't need background)
     private var metricsTimer: Timer?
     private let metricsUpdateInterval: TimeInterval = 0.5 // 500ms (2x per second)
     
@@ -128,7 +128,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var wasMonitoringBeforeInterruption = false
     
     // GPS location timer
-    private var gpsTimer: Timer?
+    private var gpsTimer: DispatchSourceTimer?
     private var gpsIntervalMonitoring: TimeInterval = 60.0 // 1 minute during monitoring
     private var gpsIntervalRecording: TimeInterval = 10.0 // 10 seconds during recording/panic
     private var locationManager: CLLocationManager?
@@ -750,7 +750,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         // Stop segment timer
-        segmentTimer?.invalidate()
+        segmentTimer?.cancel()
         segmentTimer = nil
         
         // Stop background task renewal timer
@@ -1067,14 +1067,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         inEndHoldPhase = true
         print("[AudioTriggerNative-iOS] ⏱️ Confirmation phase complete (10s), starting safety buffer (60s)")
         
-        DispatchQueue.main.async { [weak self] in
+        // Use DispatchSourceTimer - works in background during recording
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + endHoldSeconds)
+        timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             
-            self.endHoldTimer = Timer.scheduledTimer(withTimeInterval: self.endHoldSeconds, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                
-                print("[AudioTriggerNative-iOS] ⏰ Safety buffer complete (60s) - total 70s silence - stopping auto-recording")
-                
+            print("[AudioTriggerNative-iOS] ⏰ Safety buffer complete (60s) - total 70s silence - stopping auto-recording")
+            
+            DispatchQueue.main.async {
                 if self.autoRecordingActive && self.isRecording {
                     self.stopReason = "silencio"
                     self.stopRecordingInternal()
@@ -1094,16 +1095,18 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
         }
+        timer.resume()
+        endHoldTimer = timer
     }
     
     private func cancelEndTimers() {
         silenceStartTime = nil
-        endHoldTimer?.invalidate()
+        endHoldTimer?.cancel()
         endHoldTimer = nil
         inEndHoldPhase = false
         
         // Also cancel absolute silence timeout
-        absoluteSilenceTimer?.invalidate()
+        absoluteSilenceTimer?.cancel()
         absoluteSilenceTimer = nil
         
         print("[AudioTriggerNative-iOS] ❌ End timers cancelled (discussion resumed)")
@@ -1111,39 +1114,48 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func startAbsoluteSilenceTimer() {
         // Cancel existing timer
-        absoluteSilenceTimer?.invalidate()
+        absoluteSilenceTimer?.cancel()
+        absoluteSilenceTimer = nil
         
-        // Start 10-minute timeout
-        absoluteSilenceTimer = Timer.scheduledTimer(withTimeInterval: absoluteSilenceTimeout, repeats: false) { [weak self] _ in
+        // Use DispatchSourceTimer - works in background during recording
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + absoluteSilenceTimeout)
+        timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             
             // Ignore timeout if panic is active
             if self.panicManager.isPanicActive {
                 print("[AudioTriggerNative-iOS] ⏰ 10min timeout reached but IGNORED (panic active)")
                 // Restart timer for another 10 minutes
-                self.startAbsoluteSilenceTimer()
+                DispatchQueue.main.async {
+                    self.startAbsoluteSilenceTimer()
+                }
                 return
             }
             
             print("[AudioTriggerNative-iOS] ⏰ 10min absolute silence timeout reached - stopping recording")
             
-            // Stop recording with timeout reason
-            self.stopReason = "timeout"
-            self.stopRecordingInternal()
-            self.autoRecordingActive = false
-            self.cancelEndTimers()
-            
-            // Restart monitoring after 1s delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                guard let self = self else { return }
-                do {
-                    try self.startMonitoring()
-                    print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after timeout")
-                } catch {
-                    print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+            DispatchQueue.main.async {
+                // Stop recording with timeout reason
+                self.stopReason = "timeout"
+                self.stopRecordingInternal()
+                self.autoRecordingActive = false
+                self.cancelEndTimers()
+                
+                // Restart monitoring after 1s delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self = self else { return }
+                    do {
+                        try self.startMonitoring()
+                        print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after timeout")
+                    } catch {
+                        print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring: \(error)")
+                    }
                 }
             }
         }
+        timer.resume()
+        absoluteSilenceTimer = timer
         
         print("[AudioTriggerNative-iOS] ⏱️ Absolute silence timer started (10 minutes)")
     }
@@ -1161,19 +1173,23 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private func startSegmentTimer() {
         print("[AudioTriggerNative-iOS] ⏱️ startSegmentTimer() called, segmentDuration: \(segmentDuration)s")
         
-        // MUST run on main thread for Timer to work
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            print("[AudioTriggerNative-iOS] ⏱️ Creating segment timer on main thread...")
-            
-            self.segmentTimer = Timer.scheduledTimer(withTimeInterval: self.segmentDuration, repeats: true) { [weak self] _ in
-                print("[AudioTriggerNative-iOS] ⏰ Segment timer FIRED! Calling uploadSegment()...")
+        // Stop existing timer if any
+        segmentTimer?.cancel()
+        segmentTimer = nil
+        
+        // Use DispatchSourceTimer - works in background (unlike Timer.scheduledTimer)
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + segmentDuration, repeating: segmentDuration)
+        timer.setEventHandler { [weak self] in
+            print("[AudioTriggerNative-iOS] ⏰ Segment timer FIRED! Calling uploadSegment()...")
+            DispatchQueue.main.async {
                 self?.uploadSegment()
             }
-            
-            print("[AudioTriggerNative-iOS] ✅ Segment timer created successfully, will fire every \(self.segmentDuration)s")
         }
+        timer.resume()
+        segmentTimer = timer
+        
+        print("[AudioTriggerNative-iOS] ✅ Segment timer created with DispatchSourceTimer, will fire every \(segmentDuration)s - works in background")
     }
     
     private func uploadSegment() {
@@ -1350,24 +1366,27 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func startBackgroundTaskRenewalTimer() {
         // Renew background task every 25 seconds (before iOS 30s limit)
-        // MUST run on main thread for Timer to work
-        DispatchQueue.main.async { [weak self] in
+        // Use DispatchSourceTimer - works in background
+        backgroundTaskRenewalTimer?.cancel()
+        backgroundTaskRenewalTimer = nil
+        
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + 25.0, repeating: 25.0)
+        timer.setEventHandler { [weak self] in
             guard let self = self else { return }
-            self.backgroundTaskRenewalTimer?.invalidate()
-            self.backgroundTaskRenewalTimer = Timer.scheduledTimer(withTimeInterval: 25.0, repeats: true) { [weak self] _ in
-                guard let self = self else { return }
-                print("[AudioTriggerNative-iOS] 🔄 Renewing background task...")
+            print("[AudioTriggerNative-iOS] 🔄 Renewing background task...")
+            DispatchQueue.main.async {
                 self.endBackgroundTask()
                 self.startBackgroundTask()
             }
         }
+        timer.resume()
+        backgroundTaskRenewalTimer = timer
     }
     
     private func stopBackgroundTaskRenewalTimer() {
-        DispatchQueue.main.async { [weak self] in
-            self?.backgroundTaskRenewalTimer?.invalidate()
-            self?.backgroundTaskRenewalTimer = nil
-        }
+        backgroundTaskRenewalTimer?.cancel()
+        backgroundTaskRenewalTimer = nil
     }
     
     // MARK: - Metrics Timer
@@ -1667,20 +1686,22 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Send immediate ping
         sendPing()
         
-        // Create timer on main thread
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            self.pingTimer = Timer.scheduledTimer(withTimeInterval: self.pingInterval, repeats: true) { [weak self] _ in
-                self?.sendPing()
-            }
-            
-            print("[AudioTriggerNative-iOS] 🏓 Ping timer started (interval: \(self.pingInterval)s)")
+        // Use DispatchSourceTimer instead of Timer.scheduledTimer
+        // DispatchSourceTimer works in background because it runs on a DispatchQueue,
+        // not on the RunLoop (which is suspended in background)
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + pingInterval, repeating: pingInterval)
+        timer.setEventHandler { [weak self] in
+            self?.sendPing()
         }
+        timer.resume()
+        pingTimer = timer
+        
+        print("[AudioTriggerNative-iOS] 🏓 Ping timer started with DispatchSourceTimer (interval: \(pingInterval)s) - works in background")
     }
     
     private func stopPingTimer() {
-        pingTimer?.invalidate()
+        pingTimer?.cancel()
         pingTimer = nil
         print("[AudioTriggerNative-iOS] ⏹️ Ping timer stopped")
     }
@@ -1968,20 +1989,20 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Send immediate location
         sendGpsLocation()
         
-        // Create timer on main thread
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            self.gpsTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                self?.sendGpsLocation()
-            }
-            
-            print("[AudioTriggerNative-iOS] 📍 GPS timer started (interval: \(interval)s)")
+        // Use DispatchSourceTimer - works in background
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            self?.sendGpsLocation()
         }
+        timer.resume()
+        gpsTimer = timer
+        
+        print("[AudioTriggerNative-iOS] 📍 GPS timer started with DispatchSourceTimer (interval: \(interval)s) - works in background")
     }
     
     private func stopGpsTimer() {
-        gpsTimer?.invalidate()
+        gpsTimer?.cancel()
         gpsTimer = nil
         print("[AudioTriggerNative-iOS] ⏹️ GPS timer stopped")
     }

@@ -16,7 +16,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise)
     ]
     
-    private var pingTimer: Timer?
+    private var pingTimer: DispatchSourceTimer?
     private let pingInterval: TimeInterval = 35.0 // 35 segundos (entre 30-45s do Android)
     
     @objc func start(_ call: CAPPluginCall) {
@@ -49,22 +49,25 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
     private func startPingTimer() {
         stopPingTimer()
         
-        // Timer que roda mesmo em background (com limitações do iOS)
-        pingTimer = Timer.scheduledTimer(withTimeInterval: pingInterval, repeats: true) { [weak self] _ in
-            self?.sendPing()
-        }
-        
-        // Permitir que o timer rode em background
-        if let timer = pingTimer {
-            RunLoop.current.add(timer, forMode: .common)
-        }
-        
         // Enviar primeiro ping imediatamente
         sendPing()
+        
+        // Use DispatchSourceTimer instead of Timer.scheduledTimer
+        // DispatchSourceTimer works in background because it runs on a DispatchQueue,
+        // not on the RunLoop (which is suspended in background)
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + pingInterval, repeating: pingInterval)
+        timer.setEventHandler { [weak self] in
+            self?.sendPing()
+        }
+        timer.resume()
+        pingTimer = timer
+        
+        CAPLog.print("🏓 Ping timer started with DispatchSourceTimer (interval: \(pingInterval)s) - works in background")
     }
     
     private func stopPingTimer() {
-        pingTimer?.invalidate()
+        pingTimer?.cancel()
         pingTimer = nil
     }
     
