@@ -254,7 +254,7 @@ export function LoginPage({ onLoginSuccess, onLogout }: LoginPageProps) {
           <img 
             src={orizonLogo} 
             alt="Orizon Tech" 
-            className="h-3 opacity-60"
+            className="h-6 opacity-60"
           />
         </motion.div>
       </motion.div>

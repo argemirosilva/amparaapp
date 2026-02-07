@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Logo } from '@/components/Logo';
+import { Loader2 } from 'lucide-react';
 
 interface SplashPageProps {
   onComplete: () => void;
@@ -27,8 +28,8 @@ export function SplashPage({ onComplete }: SplashPageProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 1.2, ease: 'easeOut' }}
-        className="flex flex-col items-center gap-8"
+        transition={{ duration: 0.8, ease: 'easeOut' }}
+        className="flex flex-col items-center gap-12"
       >
         {/* Logo Ampara - grande */}
         <Logo size="xl" />
@@ -37,6 +38,9 @@ export function SplashPage({ onComplete }: SplashPageProps) {
         <p className="text-xl text-center text-foreground/80 font-light max-w-md">
           Você não precisa mais estar sozinha.
         </p>
+
+        {/* Spinner de loading */}
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </motion.div>
     </div>
   );
