@@ -23,6 +23,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
     var window: UIWindow?
     var bridgeViewController: CAPBridgeViewController?
     private var loadingTimeoutTimer: Timer?
+    private var isObservingProgress = false
 
     private func logBundlePublicContents() {
         if let publicURL = Bundle.main.url(forResource: "public", withExtension: nil) {
@@ -129,6 +130,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
             } else {
                 print("[SceneDelegate] ⏳ Aguardando WebView carregar...")
                 webView.addObserver(self, forKeyPath: "estimatedProgress", options: .new, context: nil)
+                self.isObservingProgress = true
             }
         } else {
             // Fallback: se não conseguir acessar a webView, usa pequeno atraso
@@ -167,7 +169,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
                 guard let self = self, let window = self.window, let bridgeVC = self.bridgeViewController else { return }
                 self.loadingTimeoutTimer?.invalidate()
                 // Remover observer para evitar múltiplas chamadas
-                webView.removeObserver(self, forKeyPath: "estimatedProgress")
+                if self.isObservingProgress {
+                    webView.removeObserver(self, forKeyPath: "estimatedProgress")
+                    self.isObservingProgress = false
+                }
                 print("[SceneDelegate] 🔄 Switching to bridge rootViewController")
                 UIView.transition(with: window, duration: 0.25, options: .transitionCrossDissolve, animations: {
                     window.rootViewController = bridgeVC
@@ -180,8 +185,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, WKNavigationDelegate {
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
-        if let webView = bridgeViewController?.bridge?.webView as? WKWebView {
+        if isObservingProgress, let webView = bridgeViewController?.bridge?.webView as? WKWebView {
             webView.removeObserver(self, forKeyPath: "estimatedProgress")
+            isObservingProgress = false
         }
         loadingTimeoutTimer?.invalidate()
         loadingTimeoutTimer = nil
