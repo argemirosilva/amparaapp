@@ -349,12 +349,7 @@ export default function SettingsPage() {
       {/* iOS SafeArea spacer */}
       <div className="h-[env(safe-area-inset-top)] bg-background shrink-0" />
       {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3"
-        style={{ paddingTop: '1rem' }}
-      >
+      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 3rem)' }}>
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -366,7 +361,7 @@ export default function SettingsPage() {
           </Button>
           <h1 className="text-lg font-semibold">Configurações</h1>
         </div>
-      </motion.div>
+      </header>
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-4 py-6 space-y-6">
