@@ -29,7 +29,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useBackgroundServices } from '@/hooks/useBackgroundServices';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { hybridAudioTrigger } from '@/services/hybridAudioTriggerService';
-import { getSessionToken, getRefreshToken, getUserData } from '@/services/sessionService';
+import { getSessionToken, getRefreshToken, getUserData, initSessionService } from '@/services/sessionService';
 import { audioTriggerSingleton } from '@/services/audioTriggerSingleton';
 import { getMonitoringGateStatus } from '@/services/monitoringGateService';
 
@@ -253,12 +253,15 @@ export function HomePage({ onLogout }: HomePageProps) {
     // - Callback validation
     // - Foreground/background transitions
     console.log('[Home] 🟢 Phase 4: Auto-starting hybrid audio trigger...');
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
     console.log('\n\n\n');
     console.log('🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢');
     console.log('🜢 CHAMANDO hybridAudioTrigger.start() AGORA!');
     console.log('🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢🜢');
     console.log('\n\n\n');
+      
+      // Initialize session service first to load cached tokens
+      await initSessionService();
       
       // Get credentials from session
       const sessionToken = getSessionToken();
