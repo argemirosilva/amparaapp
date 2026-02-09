@@ -2103,6 +2103,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Initialize last period status
         lastPeriodStatus = isWithinMonitoringPeriod()
         
+        // Immediately report current period status to server
+        if lastPeriodStatus {
+            print("[AudioTriggerNative-iOS] 📡 Initial check: Within monitoring period - reporting janela_iniciada")
+            reportMonitoringStatus("janela_iniciada", isMonitoring: true)
+        } else {
+            print("[AudioTriggerNative-iOS] 📡 Initial check: Outside monitoring period - reporting janela_finalizada")
+            reportMonitoringStatus("janela_finalizada", isMonitoring: false)
+        }
+        
         // Check every 30 seconds for period changes
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now() + 30.0, repeating: 30.0)
