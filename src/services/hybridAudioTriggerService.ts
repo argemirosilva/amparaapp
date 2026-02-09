@@ -189,6 +189,12 @@ class HybridAudioTriggerService {
       };
       const options = { config: mergedConfig };
       
+      console.log('🔍🔍🔍 DEBUG mergedConfig:');
+      console.log('  - sessionToken:', mergedConfig.sessionToken ? `${mergedConfig.sessionToken.substring(0, 20)}...` : 'MISSING');
+      console.log('  - refreshToken:', mergedConfig.refreshToken ? `${mergedConfig.refreshToken.substring(0, 20)}...` : 'MISSING');
+      console.log('  - emailUsuario:', mergedConfig.emailUsuario || 'MISSING');
+      console.log('  - monitoringPeriods:', mergedConfig.monitoringPeriods?.length || 0);
+      
       console.log('\n\n\n');
       console.log('🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠');
       console.log('🟠 CHAMANDO AudioTriggerNative.start() AGORA!');
