@@ -32,6 +32,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var isRecording = false
+    private var isMonitoring = false // Track if actively monitoring (not just audio engine running)
     private var isCalibrated = false
     private var sessionToken: String?
     private var refreshToken: String?
@@ -476,6 +477,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private func startMonitoring() throws {
         print("[AudioTriggerNative-iOS] 👂 Starting monitoring (calibration + detection only)...")
         
+        // Set monitoring state
+        isMonitoring = true
+        
         // Force cleanup any existing audioEngine (stale state from previous session)
         if let existingEngine = audioEngine {
             print("[AudioTriggerNative-iOS] 🧹 Cleaning up stale audioEngine before restart")
@@ -549,6 +553,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func stopMonitoring() {
         print("[AudioTriggerNative-iOS] 🛑 Stopping monitoring...")
+        
+        // Set monitoring state
+        isMonitoring = false
         
         // Stop metrics timer
         stopMetricsTimer()
@@ -1834,7 +1841,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             "email_usuario": email,
             "device_id": deviceId,
             "is_recording": isRecording,
-            "is_monitoring": !isRecording, // If not recording, then monitoring
+            "is_monitoring": isMonitoring,
             "timezone": timezone,
             "timezone_offset_minutes": timezoneOffset
         ]
@@ -2014,6 +2021,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     private func sendGpsLocation() {
+        print("[AudioTriggerNative-iOS] 📍🔄 sendGpsLocation() called - isMonitoring: \(isMonitoring), isRecording: \(isRecording)")
+        
         guard let email = emailUsuario else {
             print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: missing email")
             return
@@ -2021,9 +2030,11 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Get current location
         guard let location = currentLocation else {
-            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: no location available")
+            print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: no location available (locationManager may not have updated yet)")
             return
         }
+        
+        print("[AudioTriggerNative-iOS] 📍✅ GPS available - preparing to send to server")
         
         // Get device ID
         let deviceId = getOrCreateDeviceId()
@@ -2082,6 +2093,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             print("[AudioTriggerNative-iOS] ❌ Failed to serialize GPS payload: \(error)")
             return
         }
+        
+        print("[AudioTriggerNative-iOS] 📍🚀 Sending GPS to server: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude), accuracy=\(location.horizontalAccuracy)m, battery=\(batteryLevel)%")
         
         // Send request (background-safe)
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
