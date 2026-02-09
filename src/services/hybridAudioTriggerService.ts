@@ -182,7 +182,12 @@ class HybridAudioTriggerService {
       
       // iOS: Plugin nativo Swift está disponível
       // Android: Plugin nativo Java está disponível
-      const options = this.nativeConfig ? { config: this.nativeConfig } : {};
+      // Merge config parameter with nativeConfig (parameter takes precedence for tokens)
+      const mergedConfig = {
+        ...this.nativeConfig,
+        ...config // sessionToken, refreshToken, emailUsuario from parameter
+      };
+      const options = { config: mergedConfig };
       
       console.log('\n\n\n');
       console.log('🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠🟠');
