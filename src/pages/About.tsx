@@ -14,7 +14,7 @@ export default function AboutPage() {
       {/* iOS SafeArea spacer */}
       <div className="h-[env(safe-area-inset-top)] bg-background shrink-0" />
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 3rem)' }}>
+      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: '3rem' }}>
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
