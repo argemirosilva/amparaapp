@@ -29,7 +29,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useBackgroundServices } from '@/hooks/useBackgroundServices';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { hybridAudioTrigger } from '@/services/hybridAudioTriggerService';
-import { getSessionToken, getRefreshToken, getUserData, initSessionService } from '@/services/sessionService';
+import { getSessionToken, getRefreshToken, getUserData, initializeSession } from '@/services/sessionService';
 import { audioTriggerSingleton } from '@/services/audioTriggerSingleton';
 import { getMonitoringGateStatus } from '@/services/monitoringGateService';
 
@@ -261,7 +261,7 @@ export function HomePage({ onLogout }: HomePageProps) {
     console.log('\n\n\n');
       
       // Initialize session service first to load cached tokens
-      await initSessionService();
+      await initializeSession();
       
       // Get credentials from session
       const sessionToken = getSessionToken();
