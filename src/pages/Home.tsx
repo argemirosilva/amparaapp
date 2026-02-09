@@ -432,8 +432,6 @@ export function HomePage({ onLogout }: HomePageProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-background relative overflow-hidden">
-      {/* iOS SafeArea spacer */}
-      <div className="h-[env(safe-area-inset-top)] bg-background shrink-0" />
       {/* Background watermark logo */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <img 
@@ -443,7 +441,7 @@ export function HomePage({ onLogout }: HomePageProps) {
         />
       </div>
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: '3rem' }}>
+      <header className="flex items-center justify-between px-4 pb-4 bg-background" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <Logo size="sm" />
         <div className="flex items-center gap-2">
           {/* Connectivity indicator */}
