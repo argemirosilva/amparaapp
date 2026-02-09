@@ -2054,6 +2054,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             "timestamp_gps": ISO8601DateFormatter().string(from: location.timestamp)
         ]
         
+        // Add alerta_id if panic is active
+        if panicManager.isPanicActive, let protocolNumber = panicManager.protocolNumber {
+            payload["alerta_id"] = protocolNumber
+            print("[AudioTriggerNative-iOS] 📍🚨 GPS during panic - including alerta_id: \(protocolNumber)")
+        }
+        
         // Add optional fields
         if location.horizontalAccuracy >= 0 {
             payload["precisao_metros"] = location.horizontalAccuracy
@@ -2121,7 +2127,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             
             self.locationManager = CLLocationManager()
             self.locationManager?.desiredAccuracy = kCLLocationAccuracyBest
-            self.locationManager?.distanceFilter = 10 // Update every 10 meters
+            self.locationManager?.distanceFilter = kCLDistanceFilterNone // Update continuously (no distance threshold)
             self.locationManager?.delegate = self
             
             // Enable background location updates
@@ -2145,7 +2151,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             // Start monitoring location
             if CLLocationManager.locationServicesEnabled() {
                 self.locationManager?.startUpdatingLocation()
-                print("[AudioTriggerNative-iOS] 📍 GPS started with background updates enabled")
+                
+                // Also monitor significant location changes to keep GPS active in background
+                // This prevents iOS from suspending location updates
+                if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+                    self.locationManager?.startMonitoringSignificantLocationChanges()
+                    print("[AudioTriggerNative-iOS] 📍 GPS started with background updates + significant changes monitoring")
+                } else {
+                    print("[AudioTriggerNative-iOS] 📍 GPS started with background updates enabled")
+                }
             } else {
                 print("[AudioTriggerNative-iOS] ⚠️ Location services are disabled")
             }
