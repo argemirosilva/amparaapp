@@ -201,6 +201,47 @@ const App = () => {
     };
   }, []);
 
+  // Listen for token refresh from Native (AudioTriggerNative)
+  useEffect(() => {
+    let tokenListener: PluginListenerHandle | null = null;
+    
+    const setupTokenListener = async () => {
+      try {
+        tokenListener = await AudioTriggerNative.addListener('audioTriggerEvent', async (event: any) => {
+          // Check if this is a tokensRefreshed event
+          if (event.event === 'tokensRefreshed') {
+            console.log('[App] Tokens refreshed by Native, updating session service...');
+            
+            const { setSessionToken, setRefreshToken } = await import('@/services/sessionService');
+            
+            if (event.access_token) {
+              await setSessionToken(event.access_token);
+              console.log('[App] Access token updated in session service');
+            }
+            
+            if (event.refresh_token) {
+              await setRefreshToken(event.refresh_token);
+              console.log('[App] Refresh token updated in session service');
+            }
+            
+            console.log('[App] Session tokens synchronized with Native');
+          }
+        });
+        console.log('[App] Native token refresh listener registered');
+      } catch (error) {
+        console.error('[App] Failed to register native token refresh listener:', error);
+      }
+    };
+    
+    setupTokenListener();
+    
+    return () => {
+      if (tokenListener) {
+        tokenListener.remove();
+      }
+    };
+  }, []);
+
   const handleLoginSuccess = async () => {
     console.log('[App] Login success, updating auth state');
     setAuthState(true);
