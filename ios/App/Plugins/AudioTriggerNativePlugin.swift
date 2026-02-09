@@ -130,7 +130,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     // GPS location timer
     private var gpsTimer: DispatchSourceTimer?
-    private var gpsIntervalMonitoring: TimeInterval = 60.0 // 1 minute during monitoring
+    private var gpsIntervalOutsidePeriod: TimeInterval = 1800.0 // 30 minutes outside monitoring period
+    private var gpsIntervalMonitoring: TimeInterval = 60.0 // 1 minute during monitoring period
     private var gpsIntervalRecording: TimeInterval = 10.0 // 10 seconds during recording/panic
     private var locationManager: CLLocationManager?
     private var currentLocation: CLLocation?
@@ -361,8 +362,16 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             
             // Start GPS timer if not already running
             if gpsTimer == nil {
-                let interval = isRecording ? gpsIntervalRecording : gpsIntervalMonitoring
+                let interval: TimeInterval
+                if isRecording {
+                    interval = gpsIntervalRecording
+                } else if isWithinMonitoringPeriod() {
+                    interval = gpsIntervalMonitoring
+                } else {
+                    interval = gpsIntervalOutsidePeriod
+                }
                 startGpsTimer(interval: interval)
+                print("[AudioTriggerNative-iOS] 📍 GPS timer started with \(interval)s interval")
             }
             
             print("[AudioTriggerNative-iOS] ✅ Credentials updated, timers started")
@@ -541,8 +550,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 setupLocationManager()
             }
             
-            // Start GPS timer (1 minute interval during monitoring)
-            startGpsTimer(interval: gpsIntervalMonitoring)
+            // Start GPS timer with appropriate interval
+            let interval = isWithinMonitoringPeriod() ? gpsIntervalMonitoring : gpsIntervalOutsidePeriod
+            startGpsTimer(interval: interval)
+            print("[AudioTriggerNative-iOS] 📍 GPS timer started with \(interval)s interval (within period: \(isWithinMonitoringPeriod()))")
         } else {
             print("[AudioTriggerNative-iOS] ⚠️ Skipping ping/GPS timers: user not logged in")
         }
@@ -769,8 +780,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // Update state
         isRecording = false
         
-        // Restart GPS timer with 1-minute interval (back to monitoring mode)
-        startGpsTimer(interval: gpsIntervalMonitoring)
+        // Restart GPS timer with appropriate interval based on monitoring period
+        let interval = isWithinMonitoringPeriod() ? gpsIntervalMonitoring : gpsIntervalOutsidePeriod
+        startGpsTimer(interval: interval)
+        print("[AudioTriggerNative-iOS] 📍 GPS timer restarted with \(interval)s interval (within period: \(isWithinMonitoringPeriod()))")
         
         // Partial reset: Clear frame buffers but preserve sliding window history
         print("[AudioTriggerNative-iOS] 🔄 Resetting detector (partial reset)")
