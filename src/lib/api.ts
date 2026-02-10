@@ -2,6 +2,7 @@
 // AMPARA API - Centralized API Client
 // ============================================
 
+import { Capacitor } from '@capacitor/core';
 import { getDeviceId } from './deviceId';
 import { getTimezoneInfo } from '@/utils/timezoneHelper';
 import { setSessionToken as saveSessionToken, setRefreshToken as saveRefreshToken, setUserData, clearSession, getSessionToken as getToken, getUserData } from '@/services/sessionService';
@@ -69,13 +70,31 @@ async function mobileApi<T>(
   options: { requiresAuth?: boolean } = {}
 ): Promise<ApiResponse<T>> {
   const { requiresAuth = true } = options;
-  
+
+  // CRITICAL: For login action on iOS, wait for device_id initialization from Keychain
+  // This ensures we send the persistent Keychain device_id, not a randomly generated one
+  if (action === 'loginCustomizado' && Capacitor.isNativePlatform()) {
+    const { initializeDeviceId } = await import('./deviceId');
+    await initializeDeviceId();
+    console.log('[API] ✅ Device ID initialized from Keychain before login');
+  }
+
+  // Get device_id and validate
+  const deviceId = getDeviceId();
+  if (!deviceId || deviceId.trim() === '') {
+    console.error('[API] ❌ CRITICAL: device_id is empty! Cannot proceed with API call.');
+    return {
+      data: null,
+      error: 'Device ID not initialized. Please restart the app.'
+    };
+  }
+
   // Capturar timezone
   const timezoneInfo = getTimezoneInfo();
-  
+
   const body: MobileApiPayload = {
     action,
-    device_id: getDeviceId(),
+    device_id: deviceId,
     timezone: timezoneInfo.timezone,
     timezone_offset_minutes: timezoneInfo.timezone_offset_minutes,
     ...payload,
@@ -196,12 +215,19 @@ export async function loginCustomizado(
     console.log('[API] Has access_token:', !!result.data.access_token);
     console.log('[API] Has refresh_token:', !!result.data.refresh_token);
     console.log('[API] Has session:', !!result.data.session);
-    
+
+    // CRITICAL DEBUG: Log actual values (first 20 chars only for security)
+    console.log('[API] 🔍 DETAILED DEBUG:');
+    console.log('[API]   - access_token value:', result.data.access_token ? `${result.data.access_token.substring(0, 20)}...` : 'NULL');
+    console.log('[API]   - refresh_token value:', result.data.refresh_token ? `${result.data.refresh_token.substring(0, 20)}...` : 'NULL');
+    console.log('[API]   - session.token value:', result.data.session?.token ? `${result.data.session.token.substring(0, 20)}...` : 'NULL');
+    console.log('[API]   - session.refresh_token value:', result.data.session?.refresh_token ? `${result.data.session.refresh_token.substring(0, 20)}...` : 'NULL');
+
     // Support both old and new response formats
     const accessToken = result.data.access_token || result.data.session?.token;
     const refreshToken = result.data.refresh_token || result.data.session?.refresh_token;
     const userData = result.data.user || result.data.usuario;
-    
+
     console.log('[API] Extracted accessToken:', !!accessToken);
     console.log('[API] Extracted refreshToken:', !!refreshToken);
     console.log('[API] Extracted userData:', !!userData);
@@ -216,10 +242,19 @@ export async function loginCustomizado(
     
     // Store refresh token if provided by backend
     if (refreshToken) {
+      console.log('[API] 💾 Saving refresh token:', refreshToken.substring(0, 20) + '...');
       await saveRefreshToken(refreshToken);
-      console.log('[API] Refresh token stored successfully');
+      console.log('[API] ✅ Refresh token stored successfully');
+
+      // VERIFY: Read it back immediately to confirm it was saved
+      const { getRefreshToken } = await import('@/services/sessionService');
+      const verifyToken = getRefreshToken();
+      console.log('[API] 🔍 Verification - refresh token was saved:', !!verifyToken);
+      if (!verifyToken) {
+        console.error('[API] ❌ CRITICAL: Refresh token was NOT saved properly!');
+      }
     } else {
-      console.error('[API] No refresh token found in response!');
+      console.error('[API] ❌ No refresh token found in response!');
     }
     
     // Store user data
@@ -246,13 +281,30 @@ export async function loginCustomizado(
  * Logout from the app
  */
 export async function logoutMobile(): Promise<ApiResponse<{ success: boolean }>> {
-  const result = await mobileApi<{ success: boolean }>('logoutMobile');
-  
-  // Clear local session even if API fails
-  await clearSessionToken();
-  localStorage.removeItem(STORAGE_KEYS.USER_CONFIG);
-  
-  return result;
+  try {
+    const result = await mobileApi<{ success: boolean }>('logoutMobile');
+
+    // Always clear local session regardless of API result
+    await clearSessionToken();
+    localStorage.removeItem(STORAGE_KEYS.USER_CONFIG);
+
+    // If API returned error (e.g., "sessão inválida"), force logout anyway
+    if (result.error) {
+      console.warn('[API] Logout API returned error, but local session cleared:', result.error);
+      // Return success since local session was cleared
+      return { data: { success: true }, error: null };
+    }
+
+    return result;
+  } catch (error) {
+    // If API throws exception, still clear local session
+    console.warn('[API] Logout API exception, clearing local session anyway:', error);
+    await clearSessionToken();
+    localStorage.removeItem(STORAGE_KEYS.USER_CONFIG);
+
+    // Return success since local session was cleared
+    return { data: { success: true }, error: null };
+  }
 }
 
 // ============================================
@@ -484,15 +536,15 @@ export async function syncConfigMobile(): Promise<ApiResponse<ConfigSyncResponse
  */
 export async function pingMobile(isRecording?: boolean, isMonitoring?: boolean): Promise<ApiResponse<PingResponse>> {
   console.log('[API] pingMobile called with:', { isRecording, isMonitoring });
-  
+
   try {
     // Import device info plugin dynamically to avoid circular dependencies
     const DeviceInfoExtended = (await import('@/plugins/deviceInfo')).default;
     console.log('[API] DeviceInfoExtended imported successfully');
-    
+
     const deviceInfo = await DeviceInfoExtended.getExtendedInfo();
     console.log('[API] Device info retrieved:', deviceInfo);
-    
+
     const payload = {
       bateria_percentual: deviceInfo.batteryLevel,
       is_charging: deviceInfo.isCharging,
@@ -503,22 +555,84 @@ export async function pingMobile(isRecording?: boolean, isMonitoring?: boolean):
       timezone: deviceInfo.timezone,
       timezone_offset_minutes: deviceInfo.timezoneOffsetMinutes,
     };
-    
+
     console.log('[API] pingMobile FULL payload:', JSON.stringify(payload, null, 2));
-    
+
     return mobileApi<PingResponse>('pingMobile', payload);
   } catch (error) {
     console.error('[API] ERROR in pingMobile:', error);
     console.warn('[API] Falling back to minimal payload');
-    
+
     const fallbackPayload = {
       is_recording: isRecording ?? false,
       is_monitoring: isMonitoring ?? false,
     };
-    
+
     console.log('[API] pingMobile FALLBACK payload:', JSON.stringify(fallbackPayload, null, 2));
-    
+
     return mobileApi<PingResponse>('pingMobile', fallbackPayload);
+  }
+}
+
+/**
+ * Report monitoring status to server
+ * This sends the specific "reportarStatusMonitoramento" action
+ */
+export async function reportMonitoringStatus(
+  status: 'janela_iniciada' | 'janela_finalizada',
+  isMonitoring: boolean,
+  motivo: string = 'janela_agendada'
+): Promise<ApiResponse<{ success: boolean }>> {
+  console.log('[API] reportMonitoringStatus called with:', { status, isMonitoring, motivo });
+
+  try {
+    const DeviceInfoExtended = (await import('@/plugins/deviceInfo')).default;
+    const deviceInfo = await DeviceInfoExtended.getExtendedInfo();
+    const userData = getUserData();
+    const token = getSessionToken();
+
+    if (!userData?.email) {
+      console.error('[API] Cannot report monitoring status: missing email');
+      return { data: null, error: 'Missing user email' };
+    }
+
+    if (!token) {
+      console.error('[API] Cannot report monitoring status: missing session_token');
+      return { data: null, error: 'Missing session token' };
+    }
+
+    const payload = {
+      action: 'reportarStatusMonitoramento',
+      email_usuario: userData.email,
+      device_id: deviceInfo.deviceId,
+      session_token: token,
+      status_monitoramento: status,
+      is_monitoring: isMonitoring,
+      motivo: motivo,
+    };
+
+    console.log('[API] reportMonitoringStatus payload:', JSON.stringify(payload, null, 2));
+
+    // Send directly to mobile-api endpoint
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[API] reportMonitoringStatus response:', data);
+
+    return { data: { success: true }, error: null };
+  } catch (error) {
+    console.error('[API] ERROR in reportMonitoringStatus:', error);
+    return { data: null, error: String(error) };
   }
 }
 

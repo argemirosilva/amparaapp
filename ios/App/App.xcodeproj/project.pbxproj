@@ -11,6 +11,10 @@
 		16376B9B2F32B51B006C9619 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16376B9A2F32B51B006C9619 /* SceneDelegate.swift */; };
 		169316802F33F576004E7FF0 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 1693167F2F33F576004E7FF0 /* CapApp-SPM */; };
 		169316822F34081B004E7FF0 /* NotificationsPermissionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 169316812F34081B004E7FF0 /* NotificationsPermissionPlugin.swift */; };
+		16A142702F3A383D00913FAB /* PanicManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A1426F2F3A383D00913FAB /* PanicManager.swift */; };
+		16A142722F3A384700913FAB /* PanicPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A142712F3A384700913FAB /* PanicPlugin.swift */; };
+		16A142882F3AB47300913FAB /* AudioSegmentUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A142872F3AB47300913FAB /* AudioSegmentUploader.swift */; };
+		16A1428A2F3AB4C000913FAB /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A142892F3AB4C000913FAB /* KeychainHelper.swift */; };
 		16B8F2372F33D5AC00ADF815 /* debug.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 16B8F2362F33D5AC00ADF815 /* debug.xcconfig */; };
 		16EA725A2F3283EA00A73E62 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16EA72592F3283EA00A73E62 /* AppDelegate.swift */; };
 		16EA72652F32874B00A73E62 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 16EA72612F32874B00A73E62 /* README.md */; };
@@ -34,6 +38,11 @@
 		16376ACD2F32906E006C9619 /* LocationPermissionHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationPermissionHelper.swift; sourceTree = "<group>"; };
 		16376B9A2F32B51B006C9619 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		169316812F34081B004E7FF0 /* NotificationsPermissionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPermissionPlugin.swift; sourceTree = "<group>"; };
+		16A1426F2F3A383D00913FAB /* PanicManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanicManager.swift; sourceTree = "<group>"; };
+		16A142712F3A384700913FAB /* PanicPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanicPlugin.swift; sourceTree = "<group>"; };
+		16A142732F3A38EC00913FAB /* App-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "App-Bridging-Header.h"; sourceTree = "<group>"; };
+		16A142872F3AB47300913FAB /* AudioSegmentUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSegmentUploader.swift; sourceTree = "<group>"; };
+		16A142892F3AB4C000913FAB /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		16B8F2362F33D5AC00ADF815 /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		16EA72592F3283EA00A73E62 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		16EA725B2F32874B00A73E62 /* PluginRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginRegistration.swift; sourceTree = "<group>"; };
@@ -57,6 +66,7 @@
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		16376B872F3299E7006C9619 /* src */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); name = src; path = /Users/argemironogueira/amparamobile/src; sourceTree = "<absolute>"; };
+		16A142782F3A395600913FAB /* LAME */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = LAME; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +84,9 @@
 		16EA72642F32874B00A73E62 /* Plugins */ = {
 			isa = PBXGroup;
 			children = (
+				16A142872F3AB47300913FAB /* AudioSegmentUploader.swift */,
+				16A142712F3A384700913FAB /* PanicPlugin.swift */,
+				16A1426F2F3A383D00913FAB /* PanicManager.swift */,
 				16EA725C2F32874B00A73E62 /* AudioSegmentUploader.swift */,
 				16EA725D2F32874B00A73E62 /* AudioTriggerNativePlugin.swift */,
 				16EA725E2F32874B00A73E62 /* DeviceInfoExtendedPlugin.swift */,
@@ -89,6 +102,9 @@
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
+				16A142892F3AB4C000913FAB /* KeychainHelper.swift */,
+				16A142782F3A395600913FAB /* LAME */,
+				16A142732F3A38EC00913FAB /* App-Bridging-Header.h */,
 				16EA725B2F32874B00A73E62 /* PluginRegistration.swift */,
 				16EA72642F32874B00A73E62 /* Plugins */,
 				16B8F2362F33D5AC00ADF815 /* debug.xcconfig */,
@@ -141,6 +157,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				16376B872F3299E7006C9619 /* src */,
+				16A142782F3A395600913FAB /* LAME */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -215,14 +232,18 @@
 				16376ACE2F32906E006C9619 /* LocationPermissionHelper.swift in Sources */,
 				16EA72662F32874B00A73E62 /* SessionExpiredListenerPlugin.swift in Sources */,
 				16EA72672F32874B00A73E62 /* DeviceInfoExtendedPlugin.swift in Sources */,
+				16A142722F3A384700913FAB /* PanicPlugin.swift in Sources */,
+				16A142882F3AB47300913FAB /* AudioSegmentUploader.swift in Sources */,
 				16EA72682F32874B00A73E62 /* PermissionsPlugin.swift in Sources */,
 				16EA72692F32874B00A73E62 /* SecureStoragePlugin.swift in Sources */,
 				16EA726A2F32874B00A73E62 /* PluginRegistration.swift in Sources */,
 				16376B9B2F32B51B006C9619 /* SceneDelegate.swift in Sources */,
 				169316822F34081B004E7FF0 /* NotificationsPermissionPlugin.swift in Sources */,
+				16A142702F3A383D00913FAB /* PanicManager.swift in Sources */,
 				16EA726B2F32874B00A73E62 /* AudioTriggerNativePlugin.swift in Sources */,
 				16EA726C2F32874B00A73E62 /* KeepAlivePlugin.swift in Sources */,
 				16EA726D2F32874B00A73E62 /* AudioSegmentUploader.swift in Sources */,
+				16A1428A2F3AB4C000913FAB /* KeychainHelper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -378,16 +399,23 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ampara;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/LAME",
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = tech.orizon.ampara;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "App-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -401,15 +429,22 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ampara;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/LAME",
+				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = tech.orizon.ampara;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "App-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

@@ -31,7 +31,7 @@ import { LocationPermissionRequest } from "./components/LocationPermissionReques
 import { Capacitor } from '@capacitor/core';
 import KeepAlive from '@/plugins/keepAlive';
 import { AudioTriggerNative } from '@/plugins/audioTriggerNative';
-import { getDeviceId } from '@/lib/deviceId';
+import { getDeviceId, initializeDeviceId } from '@/lib/deviceId';
 import { checkPermissions } from '@/services/permissionsService';
 
 const queryClient = new QueryClient();
@@ -48,18 +48,20 @@ const App = () => {
     const initAuth = async () => {
       try {
         console.log('[App] Initializing session service...');
-        
+
+        // Initialize device ID from native platform (iOS Keychain sync)
+        await initializeDeviceId();
 
         // Initialize the session service (loads from native storage)
         await initializeSession();
-        
+
         // Initialize background state manager (monitors app visibility)
         initializeBackgroundStateManager();
-        
+
         // Check if authenticated
         const authenticated = isAuthenticated();
         console.log('[App] Authentication status:', authenticated);
-        
+
         // Persist session - don't validate token on app open
         // Token will be validated when making API calls
         // If token is invalid, API will return 401 and force logout
@@ -69,7 +71,7 @@ const App = () => {
         setAuthState(false);
       }
     };
-    
+
     initAuth();
   }, []);
 

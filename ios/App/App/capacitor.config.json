@@ -2,6 +2,21 @@
 	"appId": "tech.orizon.ampara",
 	"appName": "Ampara",
 	"webDir": "dist",
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 0,
+			"launchAutoHide": true,
+			"backgroundColor": "#FFFFFF",
+			"androidSplashResourceName": "splash",
+			"androidScaleType": "CENTER_CROP",
+			"showSpinner": false,
+			"androidSpinnerStyle": "large",
+			"iosSpinnerStyle": "small",
+			"spinnerColor": "#999999",
+			"splashFullScreen": true,
+			"splashImmersive": true
+		}
+	},
 	"packageClassList": [
 		"KeepAwakePlugin",
 		"AppPlugin",

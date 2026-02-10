@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Logo } from '@/components/Logo';
+import amparaLogo from '@/assets/ampara-logo.png';
 import { Loader2 } from 'lucide-react';
 
 interface SplashPageProps {
@@ -31,8 +31,12 @@ export function SplashPage({ onComplete }: SplashPageProps) {
         transition={{ duration: 0.8, ease: 'easeOut' }}
         className="flex flex-col items-center gap-12"
       >
-        {/* Logo Ampara - grande */}
-        <Logo size="xl" />
+        {/* Logo Ampara - grande (mais visível na splash) */}
+        <img
+          src={amparaLogo}
+          alt="Ampara"
+          className="w-48 h-48 object-contain mix-blend-normal opacity-95"
+        />
         
         {/* Frase */}
         <p className="text-xl text-center text-foreground/80 font-light max-w-md">

@@ -34,9 +34,14 @@ export async function refreshAccessToken(): Promise<boolean> {
         return false;
       }
 
-      // Get device_id from storage
-      const { getDeviceId } = await import('./sessionService');
+      // Get device_id from deviceId module (NOT sessionService!)
+      const { getDeviceId } = await import('@/lib/deviceId');
       const deviceId = getDeviceId();
+
+      if (!deviceId || deviceId.trim() === '') {
+        console.error('[TokenRefresh] ❌ device_id is empty! Cannot refresh token.');
+        return false;
+      }
       
       // Call the backend refresh endpoint
       const response = await fetch(`${API_BASE_URL}/mobile-api`, {

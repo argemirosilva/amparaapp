@@ -34,6 +34,20 @@ class AudioSegmentUploader: NSObject {
     
     // Reference to plugin to share GPS location
     weak var plugin: AudioTriggerNativePlugin?
+
+    // Use a background session so uploads can continue with app in background/locked state
+    private lazy var uploadSession: URLSession = {
+        let config = URLSessionConfiguration.background(withIdentifier: "tech.orizon.ampara.segment-upload.\(UUID().uuidString)")
+        config.isDiscretionary = false
+        config.waitsForConnectivity = true
+        config.sessionSendsLaunchEvents = true
+        config.allowsCellularAccess = true
+        config.allowsExpensiveNetworkAccess = true
+        config.allowsConstrainedNetworkAccess = true
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 180
+        return URLSession(configuration: config)
+    }()
     
     // MARK: - Initialization
     
@@ -92,7 +106,8 @@ class AudioSegmentUploader: NSObject {
         case .authorizedAlways:
             print("[AudioSegmentUploader] 🔐 Status: Authorized Always - starting GPS")
         case .authorizedWhenInUse:
-            print("[AudioSegmentUploader] 🔐 Status: Authorized When In Use - starting GPS")
+            print("[AudioSegmentUploader] ⚠️ Status: Authorized When In Use - background GPS is not guaranteed on lock screen")
+            return
         @unknown default:
             print("[AudioSegmentUploader] 🔐 Status: Unknown (\(authStatus.rawValue))")
             return
@@ -147,11 +162,11 @@ class AudioSegmentUploader: NSObject {
                     self.authPollingTimer = nil
                     
                     // Manually trigger what didChangeAuthorization should have done
-                    if currentStatus == .authorizedAlways || currentStatus == .authorizedWhenInUse {
+                    if currentStatus == .authorizedAlways {
                         print("[AudioSegmentUploader] 🔍 Starting GPS after authorization")
                         self.startGPSUpdates()
                     } else {
-                        print("[AudioSegmentUploader] 🔍 Authorization denied or restricted")
+                        print("[AudioSegmentUploader] 🔍 Background GPS requires 'Always' authorization")
                     }
                     return
                 }
@@ -376,13 +391,20 @@ class AudioSegmentUploader: NSObject {
         // Close boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         
-        request.httpBody = body
-        
-        // Configure timeout (60 seconds)
+        // Persist multipart to disk and upload via background URLSession
+        let tempFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("upload_\(UUID().uuidString).multipart")
+        do {
+            try body.write(to: tempFileURL, options: .atomic)
+        } catch {
+            print("[AudioSegmentUploader] ❌ Failed to persist multipart body: \(error)")
+            completion(false)
+            return
+        }
+
         request.timeoutInterval = 60.0
-        
-        // Send request
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = uploadSession.uploadTask(with: request, fromFile: tempFileURL) { data, response, error in
+            defer { try? FileManager.default.removeItem(at: tempFileURL) }
             if let error = error {
                 print("[AudioSegmentUploader] ❌ Upload error: \(error)")
                 completion(false)
@@ -408,7 +430,8 @@ class AudioSegmentUploader: NSObject {
                 print("[AudioSegmentUploader] ❌ No HTTP response received")
                 completion(false)
             }
-        }.resume()
+        }
+        task.resume()
     }
     
     // MARK: - Conversion
@@ -531,8 +554,7 @@ extension AudioSegmentUploader: CLLocationManagerDelegate {
             print("[AudioSegmentUploader] 🔐 Status: Authorized Always - starting GPS")
             startGPSUpdates()
         case .authorizedWhenInUse:
-            print("[AudioSegmentUploader] 🔐 Status: Authorized When In Use - starting GPS")
-            startGPSUpdates()
+            print("[AudioSegmentUploader] ⚠️ Status: Authorized When In Use - background GPS is not guaranteed on lock screen")
         @unknown default:
             print("[AudioSegmentUploader] 🔐 Status: Unknown (\(status.rawValue))")
         }

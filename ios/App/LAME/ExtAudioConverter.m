@@ -105,27 +105,40 @@ void startConvertMP3(ExtAudioConverterSettings* settings){
                                     &outputBufferList),
                    "ExtAudioFileRead failed");
         
-        SInt16 pcm_buffer[framesCount];
-        unsigned char mp3_buffer[framesCount];
-        memcpy(pcm_buffer,
-               outputBufferList.mBuffers[0].mData,
-               framesCount);
         if (framesCount==0) {
             printf("Done reading from input file\n");
-            //TODO:Add lame_encode_flush for end of file
+
+            // Flush remaining MP3 data
+            unsigned char mp3_flush_buffer[7200];
+            int flush_size = lame_encode_flush(lame, mp3_flush_buffer, sizeof(mp3_flush_buffer));
+            if (flush_size > 0) {
+                fwrite(mp3_flush_buffer, 1, flush_size, outputFile);
+            }
+
+            fclose(outputFile);
+            lame_close(lame);
             return;
         }
-        
+
+        // Calculate proper MP3 buffer size (LAME documentation recommends 1.25 * num_samples + 7200)
+        size_t mp3_buffer_size = (size_t)(1.25 * framesCount + 7200);
+        unsigned char* mp3_buffer = (unsigned char*)malloc(mp3_buffer_size);
+
         //the 3rd parameter means number of samples per channel, not number of sample in pcm_buffer
         write = lame_encode_buffer_interleaved(lame,
                                                outputBufferList.mBuffers[0].mData,
                                                framesCount,
                                                mp3_buffer,
-                                               0);
-        size_t result = fwrite(mp3_buffer,
-                               1,
-                               write,
-                               outputFile);
+                                               mp3_buffer_size);
+
+        if (write > 0) {
+            size_t result = fwrite(mp3_buffer,
+                                   1,
+                                   write,
+                                   outputFile);
+        }
+
+        free(mp3_buffer);
     }
 }
 

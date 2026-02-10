@@ -14,6 +14,7 @@ import { PanicButton } from '@/components/PanicButton';
 import { RecordButton } from '@/components/RecordButton';
 import { LogoutConfirmDialog } from '@/components/LogoutConfirmDialog';
 import { PermissionsRequest } from '@/components/PermissionsRequest';
+import { RecordingCountdown } from '@/components/RecordingCountdown';
 
 // MonitoringStatus is now integrated into AudioTriggerMeter
 import { MonitoringPeriodsList } from '@/components/MonitoringPeriodsList';
@@ -28,6 +29,8 @@ import { useAudioTriggerSingleton } from '@/hooks/useAudioTriggerSingleton';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useBackgroundServices } from '@/hooks/useBackgroundServices';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
+import { useMonitoringHeartbeat } from '@/hooks/useMonitoringHeartbeat';
+import { useRecordingCountdown } from '@/hooks/useRecordingCountdown';
 import { hybridAudioTrigger } from '@/services/hybridAudioTriggerService';
 import { getSessionToken, getRefreshToken, getUserData, initializeSession } from '@/services/sessionService';
 import { audioTriggerSingleton } from '@/services/audioTriggerSingleton';
@@ -54,6 +57,7 @@ export function HomePage({ onLogout }: HomePageProps) {
   const appState = useAppState();
   const panic = usePanicContext();
   const recording = useRecording();
+  const countdown = useRecordingCountdown();
   
   // Extract monitoring config from the new config service
   // Ensure monitoring_periods is a valid array with proper structure
@@ -79,11 +83,20 @@ export function HomePage({ onLogout }: HomePageProps) {
   
   // Heartbeat - ping server every 30 seconds
   // Pass recording status to heartbeat
-  useHeartbeat({ 
-    autoStart: true, 
+  useHeartbeat({
+    autoStart: true,
     interval: 30000,
     isRecording: recording.isRecording,
     isMonitoring: audioTrigger.isCapturing
+  });
+
+  // Monitoring heartbeat - reports monitoring status every 5 minutes
+  // Sends reportarStatusMonitoramento to confirm app is still active
+  useMonitoringHeartbeat({
+    isWithinPeriod: monitoring.dentroHorario,
+    isMonitoring: audioTrigger.isCapturing,
+    enabled: audioTrigger.isCapturing,
+    intervalMinutes: 5,
   });
   
   // REMOVED: Update config from server (use local defaults only)
@@ -569,7 +582,7 @@ export function HomePage({ onLogout }: HomePageProps) {
         {!panic.isPanicActive && (
           <div className="w-full max-w-sm flex flex-col items-center pt-4 mb-auto">
             {/* AudioTriggerDebugPanel removed - AudioTrigger starts automatically on login */}
-            <AudioTriggerMeter 
+            <AudioTriggerMeter
               score={audioTrigger.metrics?.score ?? 0}
               isCapturing={audioTrigger.isCapturing}
               state={audioTrigger.state}
@@ -585,6 +598,16 @@ export function HomePage({ onLogout }: HomePageProps) {
               isLoading={isConfigLoading}
               triggerMode={hybridAudioTrigger.getMode()}
             />
+
+            {/* Recording countdown timer */}
+            {recording.isRecording && countdown.isRecording && (
+              <div className="mt-4">
+                <RecordingCountdown
+                  remainingSeconds={countdown.remainingSeconds}
+                  timeoutType={countdown.timeoutType}
+                />
+              </div>
+            )}
           </div>
         )}
 

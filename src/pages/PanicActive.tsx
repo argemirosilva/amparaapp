@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { usePanicContext } from '@/contexts/PanicContext';
 import { useAppState } from '@/hooks/useAppState';
 import { useToast } from '@/hooks/use-toast';
+import { useRecordingCountdown } from '@/hooks/useRecordingCountdown';
 import { PasswordValidationDialog } from '@/components/PasswordValidationDialog';
+import { RecordingCountdown } from '@/components/RecordingCountdown';
 
 const HOLD_DURATION_MS = 1000;
 
@@ -20,6 +22,7 @@ export function PanicActivePage() {
   
   const appState = useAppState();
   const panic = usePanicContext();
+  const countdown = useRecordingCountdown();
 
   const handlePasswordValidated = async (loginTipo: 'normal' | 'coacao') => {
     setShowPasswordDialog(false);
@@ -127,24 +130,43 @@ export function PanicActivePage() {
           repeat: Infinity, 
           ease: "easeInOut" 
         }}
-        className="text-4xl font-bold text-destructive mb-12"
+        className="text-4xl font-bold text-destructive mb-4"
       >
         {formatDuration(panic.panicDuration)}
       </motion.div>
 
+      {/* Recording countdown timer (shown only for inactivity/silence mode) */}
+      {countdown.isRecording && (
+        <div className="mb-8">
+          <RecordingCountdown
+            remainingSeconds={countdown.remainingSeconds}
+            timeoutType={countdown.timeoutType}
+          />
+        </div>
+      )}
+
       {/* Cancel button with hold-to-cancel */}
       <motion.button
-        onTouchStart={(e) => {
+        onPointerDown={(e) => {
           e.preventDefault();
+          if ('setPointerCapture' in e.currentTarget) {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }
           handleHoldStart();
         }}
-        onTouchEnd={(e) => {
+        onPointerUp={(e) => {
+          e.preventDefault();
+          if ('releasePointerCapture' in e.currentTarget) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+          handleHoldEnd();
+        }}
+        onPointerCancel={(e) => {
           e.preventDefault();
           handleHoldEnd();
         }}
-        onMouseDown={handleHoldStart}
-        onMouseUp={handleHoldEnd}
-        onMouseLeave={handleHoldEnd}
+        onPointerLeave={handleHoldEnd}
+        onContextMenu={(e) => e.preventDefault()}
         disabled={!canCancel || isCancelling}
         className={`
           relative w-40 h-40 rounded-full bg-gradient-safe 
@@ -152,6 +174,7 @@ export function PanicActivePage() {
           transition-transform duration-100
           ${canCancel && !isCancelling ? 'pulse-safe active:scale-95' : 'opacity-50'}
         `}
+        style={{ touchAction: 'none' }}
       >
         {/* Progress ring */}
         {isHolding && (

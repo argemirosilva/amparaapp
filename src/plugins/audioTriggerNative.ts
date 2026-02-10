@@ -2,15 +2,25 @@ import { registerPlugin } from '@capacitor/core';
 
 export interface AudioTriggerNativePlugin {
   /**
+   * Get device ID from native Keychain (iOS) or persistent storage
+   */
+  getDeviceId(): Promise<{ deviceId: string }>;
+
+  /**
+   * Set device ID in native Keychain (iOS) - forces replacement
+   */
+  setDeviceId(options: { deviceId: string }): Promise<{ success: boolean; deviceId: string }>;
+
+  /**
    * Start native audio trigger service
    */
   start(options?: { config?: any }): Promise<{ success: boolean }>;
-  
+
   /**
    * Stop native audio trigger service
    */
   stop(): Promise<{ success: boolean }>;
-  
+
   /**
    * Check if native audio trigger is running
    */
@@ -43,7 +53,19 @@ export interface AudioTriggerNativePlugin {
     eventName: 'audioTriggerEvent',
     listenerFunc: (event: AudioTriggerEvent) => void
   ): Promise<any>;
-  
+
+  /**
+   * Add listener for recording countdown events
+   */
+  addListener(
+    eventName: 'recordingCountdown',
+    listenerFunc: (data: {
+      remainingSeconds: number;
+      timeoutType: string;
+      isRecording: boolean;
+    }) => void,
+  ): Promise<any>;
+
   /**
    * Remove all listeners
    */

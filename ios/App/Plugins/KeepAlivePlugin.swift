@@ -18,6 +18,16 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private var pingTimer: DispatchSourceTimer?
     private let pingInterval: TimeInterval = 35.0 // 35 segundos (entre 30-45s do Android)
+    private lazy var networkSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        config.allowsCellularAccess = true
+        config.allowsConstrainedNetworkAccess = true
+        config.allowsExpensiveNetworkAccess = true
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 120
+        return URLSession(configuration: config)
+    }()
     
     @objc func start(_ call: CAPPluginCall) {
         // Salvar device_id no UserDefaults (equivalente ao SharedPreferences)
@@ -142,7 +152,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = self.networkSession.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 CAPLog.print("❌ Ping failed: \(error.localizedDescription)")
                 return
@@ -203,7 +213,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = self.networkSession.dataTask(with: request) { data, response, error in
             if let error = error {
                 CAPLog.print("❌ Token refresh failed: \(error.localizedDescription)")
                 return
