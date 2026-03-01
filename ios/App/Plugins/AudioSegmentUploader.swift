@@ -14,6 +14,11 @@ import CoreLocation
  */
 
 class AudioSegmentUploader: NSObject {
+    private struct PendingUpload: Codable {
+        let filePath: String
+        let segmentIndex: Int
+        let duration: Int
+    }
     
     // MARK: - Properties
     
@@ -26,6 +31,10 @@ class AudioSegmentUploader: NSObject {
     private var origemGravacao: String
     
     private let segmentDuration: TimeInterval = 30.0
+    private let minSegmentBytesForUpload: Int64 = 1024
+    private let minFirstSegmentDurationSeconds: TimeInterval = 15.0
+    private let uploadTimeoutSeconds: TimeInterval = 30.0
+    private let maxUploadRetries = 3
     private var segmentStartTime: Date?
     
     // Location manager for GPS
@@ -34,6 +43,14 @@ class AudioSegmentUploader: NSObject {
     
     // Reference to plugin to share GPS location
     weak var plugin: AudioTriggerNativePlugin?
+    private let uploadStateQueue = DispatchQueue(label: "tech.orizon.ampara.segment-upload.state")
+    private var uploadCompletions: [Int: (Bool) -> Void] = [:]
+    private var uploadTempFiles: [Int: URL] = [:]
+    private var uploadResponseData: [Int: Data] = [:]
+    private var gpsUpdatesStarted = false
+    private let pendingQueueKey = "ampara_pending_upload_queue_v1"
+    private var pendingUploads: [PendingUpload] = []
+    private var isProcessingPendingQueue = false
 
     // Use a background session so uploads can continue with app in background/locked state
     private lazy var uploadSession: URLSession = {
@@ -44,9 +61,9 @@ class AudioSegmentUploader: NSObject {
         config.allowsCellularAccess = true
         config.allowsExpensiveNetworkAccess = true
         config.allowsConstrainedNetworkAccess = true
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 180
-        return URLSession(configuration: config)
+        config.timeoutIntervalForRequest = uploadTimeoutSeconds
+        config.timeoutIntervalForResource = uploadTimeoutSeconds
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
     
     // MARK: - Initialization
@@ -57,6 +74,8 @@ class AudioSegmentUploader: NSObject {
         self.emailUsuario = emailUsuario
         self.origemGravacao = origemGravacao
         super.init()
+        loadPendingUploads()
+        processPendingUploadsIfNeeded()
         
         // Setup location manager (MUST be on main thread for CLLocationManager)
         DispatchQueue.main.async { [weak self] in
@@ -81,12 +100,8 @@ class AudioSegmentUploader: NSObject {
         
         print("[AudioSegmentUploader] 🔧 Background location updates enabled")
         
-        // Check location services availability
-        let servicesEnabled = CLLocationManager.locationServicesEnabled()
-        print("[AudioSegmentUploader] 🔧 Location services enabled: \(servicesEnabled)")
-        
-        // Request location permission
-        let authStatus = CLLocationManager.authorizationStatus()
+        // Request location permission (prefer instance status to avoid main-thread warning)
+        let authStatus = locationManager?.authorizationStatus ?? .notDetermined
         print("[AudioSegmentUploader] 🔐 Current GPS authorization status: \(authStatus.rawValue)")
         
         switch authStatus {
@@ -118,11 +133,11 @@ class AudioSegmentUploader: NSObject {
     }
     
     private func startGPSUpdates() {
-        guard CLLocationManager.locationServicesEnabled() else {
-            print("[AudioSegmentUploader] ❌ Cannot start GPS: location services disabled")
+        if gpsUpdatesStarted {
+            print("[AudioSegmentUploader] 📍 GPS updates already active")
             return
         }
-        
+
         print("[AudioSegmentUploader] 📍 Starting GPS updates...")
         
         // Request immediate location first
@@ -131,6 +146,7 @@ class AudioSegmentUploader: NSObject {
         
         // Then start continuous updates
         locationManager?.startUpdatingLocation()
+        gpsUpdatesStarted = true
         print("[AudioSegmentUploader] 📍 GPS continuous updates enabled")
     }
     
@@ -151,7 +167,7 @@ class AudioSegmentUploader: NSObject {
                 }
                 
                 self.authPollingCount += 1
-                let currentStatus = CLLocationManager.authorizationStatus()
+                let currentStatus = self.locationManager?.authorizationStatus ?? .notDetermined
                 
                 print("[AudioSegmentUploader] 🔍 Polling authorization status (\(self.authPollingCount)/30): \(currentStatus.rawValue)")
                 
@@ -224,6 +240,14 @@ class AudioSegmentUploader: NSObject {
         // Wait 200ms for file system to finalize M4A file
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self = self else { return }
+
+            if self.segmentIndex == 0 && duration < self.minFirstSegmentDurationSeconds {
+                print("[AudioSegmentUploader] ⚠️ First segment duration \(Int(duration))s < \(Int(self.minFirstSegmentDurationSeconds))s - marking as noise and skipping upload")
+                try? FileManager.default.removeItem(at: url)
+                self.segmentIndex += 1
+                completion(true)
+                return
+            }
             
             // Validate M4A file before conversion
             guard FileManager.default.fileExists(atPath: url.path) else {
@@ -242,35 +266,47 @@ class AudioSegmentUploader: NSObject {
                     completion(false)
                     return
                 }
-            }
-            
-            // Convert M4A to MP3 before upload
-            let mp3URL = url.deletingPathExtension().appendingPathExtension("mp3")
-            self.convertM4AtoMP3(inputURL: url, outputURL: mp3URL) { [weak self] convertSuccess in
-            guard let self = self else { return }
-            
-            if !convertSuccess {
-                print("[AudioSegmentUploader] ❌ Failed to convert segment \(self.segmentIndex) to MP3")
-                completion(false)
-                return
-            }
-            
-            print("[AudioSegmentUploader] ✅ Converted segment \(self.segmentIndex) to MP3")
-            
-            // Upload MP3 file to server
-            self.uploadSegment(fileURL: mp3URL, segmentIndex: self.segmentIndex, duration: Int(duration)) { success in
-                if success {
-                    // Delete both M4A and MP3 files after successful upload
+
+                if fileSize < self.minSegmentBytesForUpload {
+                    print("\u{001B}[1;31m[AudioSegmentUploader] 🚨 SEGMENT SKIPPED: too short (\(fileSize) bytes) < \(self.minSegmentBytesForUpload). Upload nao sera chamado.\u{001B}[0m")
                     try? FileManager.default.removeItem(at: url)
-                    try? FileManager.default.removeItem(at: mp3URL)
-                    // print("[AudioSegmentUploader] ✅ Segment \(self.segmentIndex) uploaded and deleted")
-                } else {
-                    // print("[AudioSegmentUploader] ❌ Failed to upload segment \(self.segmentIndex)")
+                    self.segmentIndex += 1
+                    completion(true)
+                    return
                 }
-                
-                self.segmentIndex += 1
-                completion(success)
             }
+            
+            // Convert M4A to MP3 before upload (API currently accepts MP3/Ogg only).
+            let mp3URL = FileManager.default.temporaryDirectory.appendingPathComponent("segment_\(self.segmentIndex).mp3")
+            self.convertM4AtoMP3(inputURL: url, outputURL: mp3URL) { convertSuccess in
+                guard convertSuccess else {
+                    print("[AudioSegmentUploader] ❌ Failed to convert segment \(self.segmentIndex) to MP3")
+                    completion(false)
+                    return
+                }
+
+                print("[AudioSegmentUploader] ✅ Converted segment \(self.segmentIndex) to MP3")
+
+                let uploadURL = self.preparePersistentPendingFile(from: mp3URL, segmentIndex: self.segmentIndex) ?? mp3URL
+                self.uploadSegmentWithRetry(fileURL: uploadURL, segmentIndex: self.segmentIndex, duration: Int(duration), retriesLeft: self.maxUploadRetries) { success in
+                    if success {
+                        try? FileManager.default.removeItem(at: url)
+                        try? FileManager.default.removeItem(at: mp3URL)
+                        if uploadURL.path != mp3URL.path {
+                            try? FileManager.default.removeItem(at: uploadURL)
+                        }
+                    } else {
+                        print("[AudioSegmentUploader] ⚠️ Upload failed after retries. Queueing segment \(self.segmentIndex) for later.")
+                        self.enqueuePendingUpload(fileURL: uploadURL, segmentIndex: self.segmentIndex, duration: Int(duration))
+                        try? FileManager.default.removeItem(at: url)
+                        if uploadURL.path != mp3URL.path {
+                            try? FileManager.default.removeItem(at: mp3URL)
+                        }
+                    }
+
+                    self.segmentIndex += 1
+                    completion(true)
+                }
             }
         }
     }
@@ -278,9 +314,9 @@ class AudioSegmentUploader: NSObject {
     // MARK: - Upload
     
     private func uploadSegment(fileURL: URL, segmentIndex: Int, duration: Int, completion: @escaping (Bool) -> Void) {
-        // Build URL - usando endpoint Supabase correto
-        let baseURL = "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api"
-        guard var components = URLComponents(string: baseURL) else {
+        // Build URL from dynamic config (with safe fallback)
+        let baseURL = getApiUrl()
+        guard let components = URLComponents(string: baseURL) else {
             completion(false)
             return
         }
@@ -402,36 +438,41 @@ class AudioSegmentUploader: NSObject {
             return
         }
 
-        request.timeoutInterval = 60.0
-        let task = uploadSession.uploadTask(with: request, fromFile: tempFileURL) { data, response, error in
-            defer { try? FileManager.default.removeItem(at: tempFileURL) }
-            if let error = error {
-                print("[AudioSegmentUploader] ❌ Upload error: \(error)")
+        request.timeoutInterval = uploadTimeoutSeconds
+        print("\u{001B}[1;31m[AudioSegmentUploader] 🚨 ENVIANDO SEGMENTO -> action=receberAudioMobile | url=\(url.absoluteString) | segment=\(segmentIndex) | file=\(fileName) | bytes=\(audioData.count)\u{001B}[0m")
+        let task = uploadSession.uploadTask(with: request, fromFile: tempFileURL)
+        uploadStateQueue.sync {
+            uploadCompletions[task.taskIdentifier] = completion
+            uploadTempFiles[task.taskIdentifier] = tempFileURL
+            uploadResponseData[task.taskIdentifier] = Data()
+        }
+        task.resume()
+    }
+
+    private func uploadSegmentWithRetry(fileURL: URL, segmentIndex: Int, duration: Int, retriesLeft: Int, completion: @escaping (Bool) -> Void) {
+        uploadSegment(fileURL: fileURL, segmentIndex: segmentIndex, duration: duration) { [weak self] success in
+            guard let self = self else {
                 completion(false)
                 return
             }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("[AudioSegmentUploader] 📊 HTTP Status: \(httpResponse.statusCode)")
-                
-                // Log response body for debugging
-                if let data = data, let responseBody = String(data: data, encoding: .utf8) {
-                    print("[AudioSegmentUploader] 📊 Response body: \(responseBody)")
-                }
-                
-                if httpResponse.statusCode == 200 {
-                    // print("[AudioSegmentUploader] ✅ Segment \(segmentIndex) uploaded successfully")
-                    completion(true)
-                } else {
-                    print("[AudioSegmentUploader] ❌ Upload failed with status: \(httpResponse.statusCode)")
-                    completion(false)
-                }
-            } else {
-                print("[AudioSegmentUploader] ❌ No HTTP response received")
+
+            if success {
+                completion(true)
+                return
+            }
+
+            if retriesLeft <= 1 {
                 completion(false)
+                return
+            }
+
+            let attempt = self.maxUploadRetries - retriesLeft + 1
+            let backoffSeconds = Double(1 << min(attempt - 1, 3))
+            print("[AudioSegmentUploader] 🔁 Upload retry \(attempt + 1)/\(self.maxUploadRetries) in \(Int(backoffSeconds))s")
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + backoffSeconds) {
+                self.uploadSegmentWithRetry(fileURL: fileURL, segmentIndex: segmentIndex, duration: duration, retriesLeft: retriesLeft - 1, completion: completion)
             }
         }
-        task.resume()
     }
     
     // MARK: - Conversion
@@ -512,12 +553,117 @@ class AudioSegmentUploader: NSObject {
         
         // Stop location updates
         locationManager?.stopUpdatingLocation()
+        gpsUpdatesStarted = false
         locationManager = nil
     }
     
     func getCurrentLocation() -> CLLocation? {
         return currentLocation
     }
+
+    private func getApiUrl() -> String {
+        let fallback = "https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api"
+        return UserDefaults.standard.string(forKey: "api_url") ?? fallback
+    }
+
+    private func pendingUploadsDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("PendingUploads", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    private func preparePersistentPendingFile(from sourceURL: URL, segmentIndex: Int) -> URL? {
+        let targetURL = pendingUploadsDirectory().appendingPathComponent("segment_\(segmentIndex)_\(UUID().uuidString).mp3")
+        do {
+            if FileManager.default.fileExists(atPath: targetURL.path) {
+                try FileManager.default.removeItem(at: targetURL)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: targetURL)
+            return targetURL
+        } catch {
+            print("[AudioSegmentUploader] ⚠️ Failed to create persistent pending file: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func loadPendingUploads() {
+        guard let data = UserDefaults.standard.data(forKey: pendingQueueKey) else {
+            pendingUploads = []
+            return
+        }
+        if let decoded = try? JSONDecoder().decode([PendingUpload].self, from: data) {
+            pendingUploads = decoded
+            if !decoded.isEmpty {
+                print("[AudioSegmentUploader] 📦 Loaded \(decoded.count) pending upload(s)")
+            }
+        } else {
+            pendingUploads = []
+            UserDefaults.standard.removeObject(forKey: pendingQueueKey)
+        }
+    }
+
+    private func savePendingUploads() {
+        if pendingUploads.isEmpty {
+            UserDefaults.standard.removeObject(forKey: pendingQueueKey)
+            return
+        }
+        if let encoded = try? JSONEncoder().encode(pendingUploads) {
+            UserDefaults.standard.set(encoded, forKey: pendingQueueKey)
+        }
+    }
+
+    private func enqueuePendingUpload(fileURL: URL, segmentIndex: Int, duration: Int) {
+        let pending = PendingUpload(filePath: fileURL.path, segmentIndex: segmentIndex, duration: duration)
+        pendingUploads.append(pending)
+        savePendingUploads()
+        print("[AudioSegmentUploader] 📥 Segment queued for later upload: idx=\(segmentIndex)")
+        processPendingUploadsIfNeeded()
+    }
+
+    private func processPendingUploadsIfNeeded() {
+        guard !isProcessingPendingQueue else { return }
+        guard !pendingUploads.isEmpty else { return }
+
+        isProcessingPendingQueue = true
+        processNextPendingUpload()
+    }
+
+    private func processNextPendingUpload() {
+        guard !pendingUploads.isEmpty else {
+            isProcessingPendingQueue = false
+            savePendingUploads()
+            return
+        }
+
+        let current = pendingUploads[0]
+        let fileURL = URL(fileURLWithPath: current.filePath)
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            print("[AudioSegmentUploader] ⚠️ Pending file not found, dropping from queue: \(fileURL.lastPathComponent)")
+            pendingUploads.removeFirst()
+            savePendingUploads()
+            processNextPendingUpload()
+            return
+        }
+
+        uploadSegmentWithRetry(fileURL: fileURL, segmentIndex: current.segmentIndex, duration: current.duration, retriesLeft: maxUploadRetries) { [weak self] success in
+            guard let self = self else { return }
+            if success {
+                print("[AudioSegmentUploader] ✅ Pending upload sent: idx=\(current.segmentIndex)")
+                try? FileManager.default.removeItem(at: fileURL)
+                self.pendingUploads.removeFirst()
+                self.savePendingUploads()
+                self.processNextPendingUpload()
+            } else {
+                print("[AudioSegmentUploader] ⚠️ Pending upload still failing. Will keep in queue.")
+                self.isProcessingPendingQueue = false
+                self.savePendingUploads()
+            }
+        }
+    }
+
 }
 
 // MARK: - CLLocationManagerDelegate
@@ -558,5 +704,60 @@ extension AudioSegmentUploader: CLLocationManagerDelegate {
         @unknown default:
             print("[AudioSegmentUploader] 🔐 Status: Unknown (\(status.rawValue))")
         }
+    }
+}
+
+// MARK: - URLSession Delegates (required for background sessions)
+
+extension AudioSegmentUploader: URLSessionTaskDelegate, URLSessionDataDelegate {
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        uploadStateQueue.sync {
+            var current = uploadResponseData[dataTask.taskIdentifier] ?? Data()
+            current.append(data)
+            uploadResponseData[dataTask.taskIdentifier] = current
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let taskId = task.taskIdentifier
+
+        var completion: ((Bool) -> Void)?
+        var tempFileURL: URL?
+        var responseData: Data?
+        uploadStateQueue.sync {
+            completion = uploadCompletions.removeValue(forKey: taskId)
+            tempFileURL = uploadTempFiles.removeValue(forKey: taskId)
+            responseData = uploadResponseData.removeValue(forKey: taskId)
+        }
+
+        if let tempFileURL = tempFileURL {
+            try? FileManager.default.removeItem(at: tempFileURL)
+        }
+
+        guard let completion = completion else {
+            print("[AudioSegmentUploader] ⚠️ No completion found for upload task \(taskId)")
+            return
+        }
+
+        if let error = error {
+            print("[AudioSegmentUploader] ❌ Upload error: \(error.localizedDescription)")
+            completion(false)
+            return
+        }
+
+        guard let httpResponse = task.response as? HTTPURLResponse else {
+            print("[AudioSegmentUploader] ❌ No HTTP response received")
+            completion(false)
+            return
+        }
+
+        print("[AudioSegmentUploader] 📊 HTTP Status: \(httpResponse.statusCode)")
+        if let responseData = responseData,
+           !responseData.isEmpty,
+           let responseBody = String(data: responseData, encoding: .utf8) {
+            print("[AudioSegmentUploader] 📊 Response body: \(responseBody)")
+        }
+
+        completion(httpResponse.statusCode == 200)
     }
 }

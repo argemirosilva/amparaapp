@@ -10,7 +10,7 @@ import { HomePage } from "./pages/Home";
 
 import { Preferences } from '@capacitor/preferences';
 import { initializeSession, isAuthenticated, reloadSession, clearSession } from '@/services/sessionService';
-import { initializeConfigService } from '@/services/configService';
+import { initializeConfigService, forceSyncConfig } from '@/services/configService';
 
 import { initializeBackgroundStateManager } from '@/services/backgroundStateManager';
 import SessionExpiredListener from '@/plugins/sessionExpiredListener';
@@ -84,6 +84,9 @@ const App = () => {
         try {
           // Initialize config service (loads from cache immediately)
           await initializeConfigService();
+          console.log('[App][SYNC_CONFIG] ######## Forcing JS config sync after initializeConfigService ########');
+          const forcedSyncOk = await forceSyncConfig();
+          console.log('[App][SYNC_CONFIG] ######## forceSyncConfig startup result ########', forcedSyncOk ? 'SUCCESS' : 'FAILED');
           
           // Start KeepAlive service if not already running (Android only)
           if (Capacitor.getPlatform() === 'android') {
@@ -210,6 +213,14 @@ const App = () => {
     const setupTokenListener = async () => {
       try {
         tokenListener = await AudioTriggerNative.addListener('audioTriggerEvent', async (event: any) => {
+          // Force logout immediately on device mismatch
+          if (event.event === 'sessionExpired' && event.reason === 'device_mismatch') {
+            console.error('[App] Device mismatch detected from Native, forcing logout');
+            await clearSession();
+            setAuthState(false);
+            return;
+          }
+
           // Check if this is a tokensRefreshed event
           if (event.event === 'tokensRefreshed') {
             console.log('[App] Tokens refreshed by Native, updating session service...');
@@ -227,6 +238,14 @@ const App = () => {
             }
             
             console.log('[App] Session tokens synchronized with Native');
+          }
+
+          // Native iOS synced config (including periods) - refresh JS config state/UI.
+          if (event.event === 'configUpdated') {
+            console.log('[App] Native configUpdated received - forcing JS config sync...');
+            const { forceSyncConfig } = await import('@/services/configService');
+            const ok = await forceSyncConfig();
+            console.log('[App] forceSyncConfig after native configUpdated:', ok ? 'SUCCESS' : 'FAILED');
           }
         });
         console.log('[App] Native token refresh listener registered');
@@ -258,8 +277,9 @@ const App = () => {
 
   // Listen for session expired events (from API calls)
   useEffect(() => {
-    const handleSessionExpired = () => {
-      console.log('[App] Session expired event received, forcing logout');
+    const handleSessionExpired = (event: Event) => {
+      const reason = (event as CustomEvent)?.detail?.reason;
+      console.log('[App] Session expired event received, forcing logout', reason ? `| reason: ${reason}` : '');
       handleLogout();
     };
 

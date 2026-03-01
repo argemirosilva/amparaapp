@@ -103,6 +103,8 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Preparar payload
         var payload: [String: Any] = [
+            "action": "pingMobile",
+            "session_token": token,
             "device_id": deviceId,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             "os_version": UIDevice.current.systemVersion,
@@ -135,7 +137,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func sendPingToBackend(token: String, payload: [String: Any]) {
         // URL do backend (usar mesma do Android)
-        guard let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api") else {
+        guard let url = getApiUrl() else {
             CAPLog.print("❌ Invalid ping URL")
             return
         }
@@ -192,7 +194,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
         
         let deviceId = UserDefaults.standard.string(forKey: "ampara_device_id") ?? "ios-unknown"
         
-        guard let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api") else {
+        guard let url = getApiUrl() else {
             return
         }
         
@@ -202,6 +204,7 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
         request.timeoutInterval = 60
         
         let payload: [String: Any] = [
+            "action": "refresh_token",
             "refresh_token": refreshToken,
             "device_id": deviceId
         ]
@@ -253,5 +256,11 @@ public class KeepAlivePlugin: CAPPlugin, CAPBridgedPlugin {
         // iOS usa Background Fetch configurado no Info.plist
         // UIBackgroundModes: ["fetch", "processing", "location"]
         CAPLog.print("Background tasks registration (configured in Info.plist)")
+    }
+
+    private func getApiUrl() -> URL? {
+        let fallback = "https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api"
+        let raw = UserDefaults.standard.string(forKey: "api_url") ?? fallback
+        return URL(string: raw)
     }
 }

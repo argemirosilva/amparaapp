@@ -77,6 +77,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     // Auto-recording on fight detection
     private var autoRecordingActive = false
+    private var autoTriggerCooldownUntil: Date?
+    private let autoTriggerCooldownSeconds: TimeInterval = 60.0
     
     // Panic manager (shared state)
     private let panicManager = PanicManager.shared
@@ -85,12 +87,13 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var silenceStartTime: Date? // When silence started
     private let silenceDecaySeconds: TimeInterval = 10.0 // Confirmation phase
     private var endHoldTimer: DispatchSourceTimer? // 60-second safety buffer timer
-    private let endHoldSeconds: TimeInterval = 60.0 // Safety buffer phase
+    private let endHoldSeconds: TimeInterval = 110.0 // 10s + 110s = 120s total silence
     private var inEndHoldPhase = false
     
     // Absolute silence timeout (fallback - 10 minutes)
     private var absoluteSilenceTimer: DispatchSourceTimer?
     private let absoluteSilenceTimeout: TimeInterval = 600.0 // 10 minutes
+    private let panicMaxDuration: TimeInterval = 3600.0 // 60 minutes
     
     // Monitoring periods
     private var monitoringPeriods: [[String: String]] = []
@@ -104,6 +107,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var pingTimer: DispatchSourceTimer?
     private let pingInterval: TimeInterval = 30.0 // 30 seconds
     private var lastPingTime: Date?
+    private var gpsNoDeviceRecoveryInProgress = false
+    private var gpsNoDeviceRecoveryAttempts = 0
+    private let maxGpsNoDeviceRecoveryAttempts = 1
+    private var gpsMismatchBlockedUntil: Date?
     private var recentAmplitudes: [Float] = []
     private let recentAmplitudesMaxSize = 300 // 5 minutes at 1 sample/sec
     
@@ -123,6 +130,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // Background task
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var backgroundTaskRenewalTimer: DispatchSourceTimer?
+    private var appTransitionTaskID: UIBackgroundTaskIdentifier = .invalid
     
     // Metrics update timer (UI-only, doesn't need background)
     private var metricsTimer: Timer?
@@ -131,6 +139,13 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // Audio interruption handling
     private var wasRecordingBeforeInterruption = false
     private var wasMonitoringBeforeInterruption = false
+    private var internalAudioSessionDeactivationUntil: Date?
+    private let internalInterruptionGraceWindow: TimeInterval = 0.8
+    private var isRecordingPausedByInterruption = false
+    private var interruptionTimeoutTimer: DispatchSourceTimer?
+    private let interruptionMaxPauseSeconds: TimeInterval = 300.0
+    private var interruptionObserversConfigured = false
+    private var isStartingMonitoring = false
     
     // GPS location timer
     private var gpsTimer: DispatchSourceTimer?
@@ -168,19 +183,23 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func start(_ call: CAPPluginCall) {
         print("[AudioTriggerNative-iOS] 🔴 START() chamado do JavaScript")
+        if isStartingMonitoring {
+            print("[AudioTriggerNative-iOS] ⏳ START ignored: monitoring start already in progress")
+            call.resolve(["success": true, "starting": true])
+            return
+        }
+        gpsNoDeviceRecoveryAttempts = 0
+        gpsNoDeviceRecoveryInProgress = false
 
-        // DEBUG: Print ALL parameters received
-        print("[AudioTriggerNative-iOS] 🔍 RAW PARAMETERS RECEIVED:")
+        // DEBUG: Print only parameter keys (never log token values)
+        print("[AudioTriggerNative-iOS] 🔍 PARAMETERS RECEIVED (keys only):")
         if let options = call.options {
             for (key, value) in options {
                 let keyString = String(describing: key)
                 if keyString == "sessionToken" || keyString == "refreshToken" {
-                    // Only show first 20 chars of tokens
-                    if let strValue = value as? String {
-                        print("[AudioTriggerNative-iOS]   - \(keyString): \(strValue.prefix(20))... (length: \(strValue.count))")
-                    } else {
-                        print("[AudioTriggerNative-iOS]   - \(keyString): \(type(of: value)) = \(value)")
-                    }
+                    print("[AudioTriggerNative-iOS]   - \(keyString): [REDACTED]")
+                } else if keyString == "config" {
+                    print("[AudioTriggerNative-iOS]   - config: [OBJECT_REDACTED]")
                 } else {
                     print("[AudioTriggerNative-iOS]   - \(keyString): \(value)")
                 }
@@ -207,14 +226,14 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
             if let token = config["sessionToken"] as? String {
                 sessionToken = token
-                print("[AudioTriggerNative-iOS] ✅ sessionToken received from config: \(token.prefix(20))...")
+                print("[AudioTriggerNative-iOS] ✅ sessionToken received from config")
             } else {
                 print("[AudioTriggerNative-iOS] ❌ sessionToken NOT found in config")
             }
 
             if let refresh = config["refreshToken"] as? String {
                 refreshToken = refresh
-                print("[AudioTriggerNative-iOS] ✅ refreshToken received from config: \(refresh.prefix(20))...")
+                print("[AudioTriggerNative-iOS] ✅ refreshToken received from config")
             } else {
                 print("[AudioTriggerNative-iOS] ❌ refreshToken NOT found in config")
             }
@@ -225,20 +244,26 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 print("[AudioTriggerNative-iOS] ❌ emailUsuario NOT found in config")
             }
+
+            if let rawPeriods = config["monitoringPeriods"] as? [Any] {
+                applyMonitoringPeriods(rawPeriods, source: "start(config)")
+            } else {
+                print("[AudioTriggerNative-iOS] ⚠️ monitoringPeriods NOT found in start(config)")
+            }
         } else {
             // Fallback: check for credentials directly in call (old format)
             print("[AudioTriggerNative-iOS] 📦 No config object, checking direct parameters...")
 
             if let token = call.getString("sessionToken") {
                 sessionToken = token
-                print("[AudioTriggerNative-iOS] ✅ sessionToken received: \(token.prefix(20))...")
+                print("[AudioTriggerNative-iOS] ✅ sessionToken received")
             } else {
                 print("[AudioTriggerNative-iOS] ❌ sessionToken NOT provided in start() call")
             }
 
             if let refresh = call.getString("refreshToken") {
                 refreshToken = refresh
-                print("[AudioTriggerNative-iOS] ✅ refreshToken received: \(refresh.prefix(20))...")
+                print("[AudioTriggerNative-iOS] ✅ refreshToken received")
             } else {
                 print("[AudioTriggerNative-iOS] ❌ refreshToken NOT provided in start() call")
             }
@@ -248,6 +273,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 print("[AudioTriggerNative-iOS] ✅ emailUsuario received: \(email)")
             } else {
                 print("[AudioTriggerNative-iOS] ❌ emailUsuario NOT provided in start() call")
+            }
+
+            if let rawPeriods = call.getArray("monitoringPeriods") {
+                applyMonitoringPeriods(rawPeriods, source: "start(direct)")
+            } else {
+                print("[AudioTriggerNative-iOS] ⚠️ monitoringPeriods NOT provided directly in start() call")
             }
         }
 
@@ -264,21 +295,34 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 DispatchQueue.main.async {
                     self.notifyListeners("debugPermissionGranted", data: ["message": "Permissão concedida!"])
-                    
-                    // Start monitoring with retry (handles stale AVAudioSession after swipe-up kill)
-                    // Wait 1s before first attempt to give iOS time to release resources from killed process
-                    // Then 5 attempts with increasing delay: 2s, 4s, 6s, 8s, 10s
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.startMonitoringWithRetry(maxAttempts: 5, delay: 2.0) { success, error in
-                        if success {
-                            self.notifyListeners("debugMonitoringStarted", data: ["message": "Monitoramento iniciado!"])
-                            call.resolve(["success": true])
-                        } else {
-                            print("[AudioTriggerNative-iOS] ❌ Failed to start monitoring after retries: \(error?.localizedDescription ?? "unknown")")
-                            call.reject("Failed to start monitoring: \(error?.localizedDescription ?? "unknown")")
+
+                    self.isStartingMonitoring = true
+
+                    let startWork = {
+                        self.startMonitoringWithRetry(maxAttempts: 5, delay: 2.0) { success, error in
+                            self.isStartingMonitoring = false
+                            if success {
+                                self.notifyListeners("debugMonitoringStarted", data: ["message": "Monitoramento iniciado!"])
+                                call.resolve(["success": true])
+                            } else {
+                                print("[AudioTriggerNative-iOS] ❌ Failed to start monitoring after retries: \(error?.localizedDescription ?? "unknown")")
+                                call.reject("Failed to start monitoring: \(error?.localizedDescription ?? "unknown")")
+                            }
                         }
                     }
-                    } // end asyncAfter
+
+                    // If app is not active yet (lock/background transition), delay start to avoid AURemoteIO 2003329396
+                    if UIApplication.shared.applicationState != .active {
+                        print("[AudioTriggerNative-iOS] ⏸️ App not active - deferring monitoring start")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            startWork()
+                        }
+                    } else {
+                        // Start monitoring with retry (handles stale AVAudioSession after swipe-up kill)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            startWork()
+                        }
+                    }
                 }
             } else {
                 print("[AudioTriggerNative-iOS] ❌ Microphone permission denied")
@@ -313,6 +357,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     @objc func stop(_ call: CAPPluginCall) {
         print("[AudioTriggerNative-iOS] 🛑 stop() called (stop monitoring)")
+        isStartingMonitoring = false
         
         // Remove audio interruption observers
         removeAudioInterruptionObservers()
@@ -323,6 +368,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         // If recording is active, stop it too
         if isRecording {
             stopRecordingInternal()
+        } else if isRecordingPausedByInterruption {
+            stopReason = "manual"
+            finalizeInterruptedRecordingSession()
         }
         
         call.resolve(["success": true])
@@ -372,7 +420,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func stopManualRecording(_ call: CAPPluginCall) {
         print("[AudioTriggerNative-iOS] 🛑 stopManualRecording() called")
         
-        if !isRecording {
+        if !isRecording && !isRecordingPausedByInterruption {
             print("[AudioTriggerNative-iOS] ⚠️ Not recording")
             call.resolve(["success": true, "wasRecording": false])
             return
@@ -394,7 +442,11 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             stopReason = "manual"
         }
         
-        stopRecordingInternal()
+        if isRecordingPausedByInterruption {
+            finalizeInterruptedRecordingSession()
+        } else {
+            stopRecordingInternal()
+        }
         
         // Restart monitoring after 1s delay (Android behavior)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -469,20 +521,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Update monitoring periods if provided
         if let periodsArray = call.getArray("monitoringPeriods") {
-            // Convert JSArray to [[String: String]]
-            var periods: [[String: String]] = []
-            for item in periodsArray {
-                if let dict = item as? [String: String] {
-                    periods.append(dict)
-                }
-            }
-            monitoringPeriods = periods
-            print("[AudioTriggerNative-iOS] 📅 Updated monitoring periods: \(periods.count) periods")
-            for (index, period) in periods.enumerated() {
-                if let inicio = period["inicio"], let fim = period["fim"] {
-                    print("[AudioTriggerNative-iOS] 📅   Period \(index): \(inicio) - \(fim)")
-                }
-            }
+            applyMonitoringPeriods(periodsArray, source: "updateConfig")
         }
         
         call.resolve(["success": true])
@@ -532,11 +571,44 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
 
     // MARK: - Monitoring Period Check
+
+    private func applyMonitoringPeriods(_ periodsArray: [Any], source: String) {
+        // Convert JSArray to [[String: String]] tolerating [String: Any] inputs.
+        var periods: [[String: String]] = []
+        for item in periodsArray {
+            if let dict = item as? [String: String],
+               let inicio = dict["inicio"],
+               let fim = dict["fim"] {
+                periods.append(["inicio": inicio, "fim": fim])
+                continue
+            }
+            if let dictAny = item as? [String: Any] {
+                let inicio = dictAny["inicio"] as? String
+                let fim = dictAny["fim"] as? String
+                if let inicio, let fim {
+                    periods.append(["inicio": inicio, "fim": fim])
+                    continue
+                }
+            }
+            print("[AudioTriggerNative-iOS] ⚠️ Ignoring invalid monitoring period item (\(source)): \(item)")
+        }
+
+        monitoringPeriods = periods
+        print("[AudioTriggerNative-iOS] 📅 Updated monitoring periods from \(source): \(periods.count) periods (received: \(periodsArray.count))")
+        for (index, period) in periods.enumerated() {
+            if let inicio = period["inicio"], let fim = period["fim"] {
+                print("[AudioTriggerNative-iOS] 📅   Period \(index): \(inicio) - \(fim)")
+            }
+        }
+        if periods.isEmpty {
+            print("[AudioTriggerNative-iOS] ⚠️ monitoringPeriods is empty after parsing - schedule checks will be treated as OUTSIDE WINDOW")
+        }
+    }
     
     private func isWithinMonitoringPeriod() -> Bool {
-        // If no periods configured, always allow monitoring
+        // Fail-safe: without configured periods, treat as outside monitoring window.
         guard !monitoringPeriods.isEmpty else {
-            return true
+            return false
         }
         
         let now = Date()
@@ -588,18 +660,14 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         // STEP 1: Force deactivate audio session (ignore errors - session may not be active)
-        let audioSession = AVAudioSession.sharedInstance()
-        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        deactivateAudioSession(context: "startMonitoring(force)")
         print("[AudioTriggerNative-iOS] 🔇 Audio session force-deactivated")
         
         // STEP 2: Small pause to let iOS release audio resources
         Thread.sleep(forTimeInterval: 0.3)
         
-        // STEP 3: Configure audio session fresh (use try? for category, throw on setActive)
-        try? audioSession.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .defaultToSpeaker])
-        
-        // STEP 4: Try to activate - this is the critical step that can fail after kill
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        // STEP 3/4: Configure and activate audio session for capture
+        try configureAudioSessionForCapture()
         
         // Create audio engine
         audioEngine = AVAudioEngine()
@@ -650,6 +718,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
             // Start config sync timer to fetch configuration periodically
             startConfigSyncTimer()
+
+            // Sync immediately once at startup (do not wait 5 minutes)
+            syncConfigurationFromServer()
         } else {
             print("[AudioTriggerNative-iOS] ⚠️ Skipping ping/GPS/config timers: user not logged in")
         }
@@ -687,12 +758,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         audioEngine = nil
         
         // Deactivate audio session to fully release microphone
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            print("[AudioTriggerNative-iOS] 🔇 Audio session deactivated")
-        } catch {
-            print("[AudioTriggerNative-iOS] ⚠️ Could not deactivate audio session: \(error.localizedDescription)")
-        }
+        deactivateAudioSession(context: "stopMonitoring")
+        print("[AudioTriggerNative-iOS] 🔇 Audio session deactivated")
         
         isCalibrated = false
         calibrationSamples = []
@@ -712,15 +779,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         // Configure audio session for background recording
-        let audioSession = AVAudioSession.sharedInstance()
         // Deactivate first to release any stale locks
-        do {
-            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("[AudioTriggerNative-iOS] ⚠️ Could not deactivate audio session before recording: \(error.localizedDescription)")
-        }
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .defaultToSpeaker])
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        deactivateAudioSession(context: "startRecording(prep)")
+        try configureAudioSessionForCapture()
         
         // Preserve calibration state if reusing engine
         let wasCalibrated = isCalibrated
@@ -743,6 +804,22 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             
             // Start engine
             try engine.start()
+        } else if let engine = audioEngine {
+            // Reinstall tap and ensure engine is running after audio session reconfiguration.
+            // Without this, input callbacks can stop and segments stay header-only (~520 bytes).
+            let inputNode = engine.inputNode
+            let inputFormat = inputNode.outputFormat(forBus: 0)
+            inputNode.removeTap(onBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                self?.processAudioBuffer(buffer)
+            }
+
+            if !engine.isRunning {
+                try engine.start()
+                print("[AudioTriggerNative-iOS] 🔄 Reused engine was stopped; restarted for recording")
+            } else {
+                print("[AudioTriggerNative-iOS] ✅ Reused engine is running with refreshed input tap")
+            }
         }
         
         guard let engine = audioEngine else {
@@ -797,6 +874,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Start background task
         startBackgroundTask()
+        startBackgroundTaskRenewalTimer()
         
         // Start segment timer
         startSegmentTimer()
@@ -827,6 +905,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func stopRecordingInternal() {
         print("[AudioTriggerNative-iOS] 🛑 Stopping recording...")
+        cancelInterruptionTimeoutTimer()
+        isRecordingPausedByInterruption = false
         
         // Notify JS that stopping is in progress
         notifyEvent("recordingStopping", data: [:])
@@ -867,12 +947,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         audioEngine = nil
         
         // Deactivate audio session to fully release microphone
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            print("[AudioTriggerNative-iOS] 🔇 Audio session deactivated after recording")
-        } catch {
-            print("[AudioTriggerNative-iOS] ⚠️ Could not deactivate audio session after recording: \(error.localizedDescription)")
-        }
+        deactivateAudioSession(context: "stopRecordingInternal")
+        print("[AudioTriggerNative-iOS] 🔇 Audio session deactivated after recording")
         
         // Stop segment timer
         segmentTimer?.cancel()
@@ -884,15 +960,23 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         countdownSilenceStartTime = nil
 
         // Stop background task
+        stopBackgroundTaskRenewalTimer()
         endBackgroundTask()
 
         // Update state
         isRecording = false
+        autoTriggerCooldownUntil = Date().addingTimeInterval(autoTriggerCooldownSeconds)
+        print("[AudioTriggerNative-iOS] ⏳ Auto-trigger cooldown started (\(Int(autoTriggerCooldownSeconds))s)")
         
-        // Restart GPS timer with appropriate interval based on monitoring period
-        let interval = isWithinMonitoringPeriod() ? gpsIntervalMonitoring : gpsIntervalOutsidePeriod
-        startGpsTimer(interval: interval)
-        print("[AudioTriggerNative-iOS] 📍 GPS timer restarted with \(interval)s interval (within period: \(isWithinMonitoringPeriod()))")
+        // Restart GPS timer only if monitoring remains active.
+        if isMonitoring {
+            let interval = isWithinMonitoringPeriod() ? gpsIntervalMonitoring : gpsIntervalOutsidePeriod
+            startGpsTimer(interval: interval)
+            print("[AudioTriggerNative-iOS] 📍 GPS timer restarted with \(interval)s interval (within period: \(isWithinMonitoringPeriod()))")
+        } else {
+            stopGpsTimer()
+            print("[AudioTriggerNative-iOS] ⏹️ GPS timer remains stopped (monitoring inactive)")
+        }
         
         // Partial reset: Clear frame buffers but preserve sliding window history
         print("[AudioTriggerNative-iOS] 🔄 Resetting detector (partial reset)")
@@ -1033,8 +1117,39 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             let speechNorm = min(speechDensity / speechDensityMin, 1.0)
             let loudNorm = min(loudDensity / loudDensityMin, 1.0)
             let realScore = (speechNorm + loudNorm) / 2.0
-            
-            // Detect silence during auto-recording (for 10s + 60s timers)
+
+            // Panic global validity: 60 minutes max.
+            if panicManager.isPanicActive, let panicStartMs = panicManager.startTime {
+                let elapsed = Date().timeIntervalSince1970 - (Double(panicStartMs) / 1000.0)
+                if elapsed >= panicMaxDuration {
+                    print("[AudioTriggerNative-iOS] ⏰ Panic validity timeout reached (60min) - cancelling panic")
+                    stopReason = "timeout_panic"
+                    panicManager.cancelPanic()
+                    stopRecordingInternal()
+                    autoRecordingActive = false
+                    cancelEndTimers()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        guard let self = self else { return }
+                        do { try self.startMonitoring() } catch {
+                            print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring after panic validity timeout: \(error)")
+                        }
+                    }
+                    return
+                }
+            }
+
+            // Absolute silence timeout is based on detected activity (panic and non-panic).
+            if realScore >= 0.3 {
+                resetAbsoluteSilenceTimer()
+            }
+
+            // Panic shield: while panic is active, ignore discussion-end logic.
+            if panicManager.isPanicActive {
+                discussionScore = 0.0
+                return
+            }
+
+            // Detect silence during auto-recording (for 10s + 110s timers = 2 minutes)
             if autoRecordingActive {
                 if realScore < 0.3 { // Low score = silence
                     if silenceStartTime == nil {
@@ -1044,7 +1159,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                         if countdownSilenceStartTime == nil {
                             countdownSilenceStartTime = Date()
                             countdownTimeoutType = "silence"
-                            print("[AudioTriggerNative-iOS] 🔇 Silêncio detectado - iniciando countdown de 70s")
+                            print("[AudioTriggerNative-iOS] 🔇 Silêncio detectado - iniciando countdown de 120s")
                         }
 
                         print("[AudioTriggerNative-iOS] 🔇 Silence detected during recording, starting confirmation phase (10s)")
@@ -1108,6 +1223,19 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     private func detectFight(score: Double) {
+        // Panic shield: discussion AI must not stop/start recordings during active panic.
+        if panicManager.isPanicActive {
+            return
+        }
+
+        if let cooldownUntil = autoTriggerCooldownUntil, Date() < cooldownUntil {
+            let remaining = Int(cooldownUntil.timeIntervalSinceNow)
+            if Int(Date().timeIntervalSince1970) % 5 == 0 {
+                print("[AudioTriggerNative-iOS] ⏳ Auto-trigger cooldown active: \(max(remaining, 0))s remaining")
+            }
+            return
+        }
+
         // Check if within monitoring period
         let withinPeriod = isWithinMonitoringPeriod()
         if !withinPeriod {
@@ -1203,7 +1331,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     
     private func startEndHoldTimer() {
         inEndHoldPhase = true
-        print("[AudioTriggerNative-iOS] ⏱️ Confirmation phase complete (10s), starting safety buffer (60s)")
+        print("[AudioTriggerNative-iOS] ⏱️ Confirmation phase complete (10s), starting safety buffer (110s)")
         
         // Use DispatchSourceTimer - works in background during recording
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
@@ -1211,7 +1339,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             
-            print("[AudioTriggerNative-iOS] ⏰ Safety buffer complete (60s) - total 70s silence - stopping auto-recording")
+            print("[AudioTriggerNative-iOS] ⏰ Safety buffer complete (110s) - total 120s silence - stopping auto-recording")
             
             DispatchQueue.main.async {
                 if self.autoRecordingActive && self.isRecording {
@@ -1260,22 +1388,15 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         timer.schedule(deadline: .now() + absoluteSilenceTimeout)
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
-            
-            // Ignore timeout if panic is active
-            if self.panicManager.isPanicActive {
-                print("[AudioTriggerNative-iOS] ⏰ 10min timeout reached but IGNORED (panic active)")
-                // Restart timer for another 10 minutes
-                DispatchQueue.main.async {
-                    self.startAbsoluteSilenceTimer()
-                }
-                return
-            }
-            
+
             print("[AudioTriggerNative-iOS] ⏰ 10min absolute silence timeout reached - stopping recording")
             
             DispatchQueue.main.async {
                 // Stop recording with timeout reason
-                self.stopReason = "timeout"
+                self.stopReason = self.panicManager.isPanicActive ? "timeout_silencio" : "timeout"
+                if self.panicManager.isPanicActive {
+                    self.panicManager.cancelPanic()
+                }
                 self.stopRecordingInternal()
                 self.autoRecordingActive = false
                 self.cancelEndTimers()
@@ -1410,8 +1531,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         print("[AudioTriggerNative-iOS] 📡 Device ID: \(deviceId)")
         print("[AudioTriggerNative-iOS] 📡 Email: \(emailUsuario ?? "nil")")
         
-        // Build URL - usando endpoint Supabase
-        let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api")!
+        guard let apiUrl = getApiUrl(), let url = URL(string: apiUrl) else {
+            print("[AudioTriggerNative-iOS] ❌ Cannot report status: API URL not configured")
+            return
+        }
         
         // Get timezone info
         let timezone = TimeZone.current.identifier
@@ -1419,6 +1542,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         // Get device info
         let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
         let batteryLevel = Int(device.batteryLevel * 100)
         let deviceInfo = "\(device.systemName) \(device.systemVersion) - \(device.model)"
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
@@ -1433,10 +1557,13 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             "email_usuario": emailUsuario ?? "",
             "status_gravacao": status,
             "origem_gravacao": origemGravacao,
-            "bateria_percentual": batteryLevel,
             "dispositivo_info": deviceInfo,
             "versao_app": appVersion
         ]
+
+        if batteryLevel >= 0 {
+            body["bateria_percentual"] = batteryLevel
+        }
         
         // Add segmento_idx if we have sent segments
         if segmentIndex > 0 {
@@ -1463,7 +1590,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         request.httpBody = jsonData
         
         print("[AudioTriggerNative-iOS] 📡 Sending request to: \(url.absoluteString)")
-        print("[AudioTriggerNative-iOS] 📡 Request body: \(String(data: jsonData, encoding: .utf8) ?? "invalid")")
+        print("[AudioTriggerNative-iOS] 📡 Request body: \(redactSensitiveJsonString(from: jsonData))")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -1504,8 +1631,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         print("[AudioTriggerNative-iOS] 📡 Device ID: \(deviceId)")
         print("[AudioTriggerNative-iOS] 📡 Email: \(email)")
 
-        // Build URL
-        let url = URL(string: "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api")!
+        guard let apiUrl = getApiUrl(), let url = URL(string: apiUrl) else {
+            print("[AudioTriggerNative-iOS] ❌ Cannot report monitoring status: API URL not configured")
+            return
+        }
 
         // Build body JSON
         let body: [String: Any] = [
@@ -1526,7 +1655,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         request.httpBody = jsonData
         
         print("[AudioTriggerNative-iOS] 📡 Sending monitoring status to: \(url.absoluteString)")
-        print("[AudioTriggerNative-iOS] 📡 Request body: \(String(data: jsonData, encoding: .utf8) ?? "invalid")")
+        print("[AudioTriggerNative-iOS] 📡 Request body: \(redactSensitiveJsonString(from: jsonData))")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -1569,6 +1698,10 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Background Task
     
     private func startBackgroundTask() {
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask { [weak self] in
             self?.endBackgroundTask()
         }
@@ -1693,6 +1826,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Audio Interruption Handling
     
     private func setupAudioInterruptionObservers() {
+        if interruptionObserversConfigured {
+            return
+        }
         // Observe audio session interruptions (calls, other apps)
         NotificationCenter.default.addObserver(
             self,
@@ -1716,6 +1852,20 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             name: UIApplication.willResignActiveNotification,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidEnterBackground(_:)),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppWillEnterForeground(_:)),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
         
         NotificationCenter.default.addObserver(
             self,
@@ -1724,10 +1874,12 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             object: nil
         )
         
+        interruptionObserversConfigured = true
         print("[AudioTriggerNative-iOS] 🔔 Audio interruption observers setup")
     }
     
     private func removeAudioInterruptionObservers() {
+        guard interruptionObserversConfigured else { return }
         NotificationCenter.default.removeObserver(
             self,
             name: AVAudioSession.interruptionNotification,
@@ -1745,6 +1897,18 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             name: UIApplication.willResignActiveNotification,
             object: nil
         )
+
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
         
         NotificationCenter.default.removeObserver(
             self,
@@ -1752,6 +1916,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             object: nil
         )
         
+        interruptionObserversConfigured = false
         print("[AudioTriggerNative-iOS] 🔕 Audio interruption observers removed")
     }
     
@@ -1764,6 +1929,17 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         switch type {
         case .began:
+            if let reasonValue = userInfo[AVAudioSessionInterruptionReasonKey] as? UInt,
+               let reason = AVAudioSession.InterruptionReason(rawValue: reasonValue) {
+                print("[AudioTriggerNative-iOS] 📎 Interruption reason: \(reason.rawValue)")
+            }
+
+            if let until = internalAudioSessionDeactivationUntil, Date() < until {
+                let remainingMs = Int(max(until.timeIntervalSinceNow, 0) * 1000)
+                print("[AudioTriggerNative-iOS] ℹ️ Ignoring likely self-induced interruption (\(remainingMs)ms)")
+                return
+            }
+
             // Interruption began (call, WhatsApp, etc.)
             print("[AudioTriggerNative-iOS] ☎️ Audio interruption began (call/WhatsApp/etc)")
             
@@ -1778,8 +1954,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 // Set stop reason BEFORE stopping
                 stopReason = "mic_solicitado"
                 
-                // Stop recording (will upload current segment and report status)
-                stopRecordingInternal()
+                // Pause recording session without finalizing it
+                pauseRecordingForInterruption()
                 
                 // Notify JS
                 notifyEvent("audioInterrupted", data: [
@@ -1789,7 +1965,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             
             // Stop monitoring if active
-            if wasMonitoringBeforeInterruption {
+            if wasMonitoringBeforeInterruption && !wasRecordingBeforeInterruption {
                 print("[AudioTriggerNative-iOS] ⏸️ Pausing monitoring due to interruption")
                 stopMonitoring()
             }
@@ -1797,18 +1973,16 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         case .ended:
             // Interruption ended
             print("[AudioTriggerNative-iOS] ✅ Audio interruption ended")
-            
-            guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else {
-                return
-            }
-            
-            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-            
-            if options.contains(.shouldResume) {
+
+            let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
+            let shouldResume = options.contains(.shouldResume)
+
+            if shouldResume {
                 print("[AudioTriggerNative-iOS] 🔄 Resuming after interruption")
                 
                 // Resume monitoring if it was active
-                if wasMonitoringBeforeInterruption {
+                if wasMonitoringBeforeInterruption && !wasRecordingBeforeInterruption {
                     do {
                         try startMonitoring()
                         print("[AudioTriggerNative-iOS] ✅ Monitoring resumed after interruption")
@@ -1824,12 +1998,40 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 
                 // DON'T auto-resume recording - let detection or user decide
-                // (Android behavior: interruption stops recording permanently)
                 if wasRecordingBeforeInterruption {
-                    print("[AudioTriggerNative-iOS] ℹ️ Recording was interrupted - NOT auto-resuming (user/detection must restart)")
+                    print("[AudioTriggerNative-iOS] 🔄 Resuming paused recording after interruption")
+                    resumeRecordingAfterInterruption()
                 }
             } else {
                 print("[AudioTriggerNative-iOS] ⚠️ Interruption ended but should NOT resume")
+
+                // Some media interruptions end without .shouldResume; force recovery so
+                // monitoring does not stay down permanently.
+                if wasMonitoringBeforeInterruption {
+                    print("[AudioTriggerNative-iOS] 🔄 Attempting forced monitoring recovery")
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        guard let self = self else { return }
+                        if self.audioEngine?.isRunning == true { return }
+                        self.startMonitoringWithRetry(maxAttempts: 3, delay: 0.8) { success, error in
+                            if success {
+                                print("[AudioTriggerNative-iOS] ✅ Forced monitoring recovery succeeded")
+                                self.notifyEvent("audioResumed", data: [
+                                    "monitoringResumed": true,
+                                    "recordingResumed": false
+                                ])
+                            } else {
+                                print("[AudioTriggerNative-iOS] ❌ Forced monitoring recovery failed: \(error?.localizedDescription ?? "unknown")")
+                            }
+                        }
+                    }
+                }
+
+                if wasRecordingBeforeInterruption {
+                    print("[AudioTriggerNative-iOS] 🔄 Attempting forced recording resume after interruption")
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        self?.resumeRecordingAfterInterruption()
+                    }
+                }
             }
             
             // Reset flags
@@ -1863,18 +2065,179 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             break
         }
     }
+
+    private func pauseRecordingForInterruption() {
+        guard isRecording else { return }
+
+        isRecordingPausedByInterruption = true
+        isRecording = false
+
+        // Pause timers and session resources, but keep recording session alive.
+        segmentTimer?.cancel()
+        segmentTimer = nil
+        stopCountdownTimer()
+        stopBackgroundTaskRenewalTimer()
+        endBackgroundTask()
+        stopGpsTimer()
+        deactivateAudioSession(context: "pauseRecordingForInterruption")
+
+        // Stop capture pipeline; session will be resumed on interruption end.
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine = nil
+
+        // Flush current segment without reporting "finalizada".
+        if let uploader = uploader {
+            uploader.finishSegment { [weak self] success in
+                guard let self = self else { return }
+                if success {
+                    print("[AudioTriggerNative-iOS] ✅ Segment flushed on interruption pause")
+                } else {
+                    print("[AudioTriggerNative-iOS] ⚠️ Failed to flush segment on interruption pause")
+                }
+                self.reportRecordingStatus("pausada_interrupcao")
+            }
+        } else {
+            reportRecordingStatus("pausada_interrupcao")
+        }
+
+        startInterruptionTimeoutTimer()
+    }
+
+    private func resumeRecordingAfterInterruption() {
+        guard isRecordingPausedByInterruption else { return }
+        guard sessionToken != nil, emailUsuario != nil else { return }
+
+        do {
+            try configureAudioSessionForCapture()
+
+            if audioEngine == nil {
+                audioEngine = AVAudioEngine()
+                guard let engine = audioEngine else { return }
+                let inputNode = engine.inputNode
+                let inputFormat = inputNode.outputFormat(forBus: 0)
+                inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                    self?.processAudioBuffer(buffer)
+                }
+                try engine.start()
+            }
+
+            if uploader == nil, let token = sessionToken, let email = emailUsuario {
+                let deviceId = getOrCreateDeviceId()
+                uploader = AudioSegmentUploader(
+                    sessionId: deviceId,
+                    sessionToken: token,
+                    emailUsuario: email,
+                    origemGravacao: origemGravacao
+                )
+                uploader?.plugin = self
+            }
+
+            guard let recordingFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: sampleRate,
+                channels: channels,
+                interleaved: false
+            ) else { return }
+
+            try uploader?.startNewSegment(format: recordingFormat)
+
+            isRecording = true
+            isRecordingPausedByInterruption = false
+            cancelInterruptionTimeoutTimer()
+
+            startBackgroundTask()
+            startBackgroundTaskRenewalTimer()
+            startSegmentTimer()
+            startAbsoluteSilenceTimer()
+            countdownTimeoutType = "absolute"
+            countdownSilenceStartTime = nil
+            startCountdownTimer()
+            startGpsTimer(interval: gpsIntervalRecording)
+
+            reportRecordingStatus("retomada_interrupcao")
+            notifyEvent("audioResumed", data: [
+                "monitoringResumed": false,
+                "recordingResumed": true
+            ])
+            print("[AudioTriggerNative-iOS] ✅ Recording resumed after interruption")
+        } catch {
+            print("[AudioTriggerNative-iOS] ❌ Failed to resume recording after interruption: \(error.localizedDescription)")
+        }
+    }
+
+    private func startInterruptionTimeoutTimer() {
+        cancelInterruptionTimeoutTimer()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + interruptionMaxPauseSeconds)
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            if self.isRecordingPausedByInterruption {
+                print("[AudioTriggerNative-iOS] ⏱️ Interruption pause timeout reached, finalizing recording session")
+                self.stopReason = "interrupcao_timeout"
+                self.finalizeInterruptedRecordingSession()
+            }
+        }
+        timer.resume()
+        interruptionTimeoutTimer = timer
+    }
+
+    private func cancelInterruptionTimeoutTimer() {
+        interruptionTimeoutTimer?.cancel()
+        interruptionTimeoutTimer = nil
+    }
+
+    private func finalizeInterruptedRecordingSession() {
+        guard isRecordingPausedByInterruption else { return }
+
+        isRecordingPausedByInterruption = false
+        cancelInterruptionTimeoutTimer()
+        uploader?.cleanup()
+        uploader = nil
+        stopBackgroundTaskRenewalTimer()
+        endBackgroundTask()
+        reportRecordingStatus("finalizada")
+        notifyEvent("recordingStopped", data: [:])
+        notifyEvent("nativeRecordingStopped", data: [:])
+    }
     
     @objc private func handleAppWillResignActive(_ notification: Notification) {
         print("[AudioTriggerNative-iOS] 🔹 App will resign active (going to background/lock)")
-        // Don't stop anything - background audio should continue
+        if isMonitoring || isRecording {
+            beginAppTransitionBackgroundTask()
+        }
+    }
+
+    @objc private func handleAppDidEnterBackground(_ notification: Notification) {
+        print("[AudioTriggerNative-iOS] 🌙 App entered background/lock - reinforcing background services")
+        ensureBackgroundServicesRunning()
+        if isRecording {
+            startBackgroundTask()
+            startBackgroundTaskRenewalTimer()
+        }
+    }
+
+    @objc private func handleAppWillEnterForeground(_ notification: Notification) {
+        print("[AudioTriggerNative-iOS] 🌅 App will enter foreground")
+        endAppTransitionBackgroundTask()
     }
     
     @objc private func handleAppDidBecomeActive(_ notification: Notification) {
         print("[AudioTriggerNative-iOS] 🔸 App did become active (returning from background/lock)")
+        endAppTransitionBackgroundTask()
         
         // Only restart if we had credentials (user was logged in)
         guard sessionToken != nil else {
             print("[AudioTriggerNative-iOS] ⚠️ No session token - skipping auto-restart (waiting for JS start() call)")
+            return
+        }
+
+        // If recording was paused by interruption, prioritize recording resume.
+        if isRecordingPausedByInterruption {
+            print("[AudioTriggerNative-iOS] 🔄 Recording is paused by interruption - attempting resume first")
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.resumeRecordingAfterInterruption()
+            }
             return
         }
         
@@ -1885,12 +2248,87 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             startMonitoringWithRetry(maxAttempts: 5, delay: 1.0) { success, error in
                 if success {
                     print("[AudioTriggerNative-iOS] ✅ Monitoring restarted after returning from background")
+                    self.ensureBackgroundServicesRunning()
                 } else {
                     print("[AudioTriggerNative-iOS] ❌ Failed to restart monitoring after 5 retries: \(error?.localizedDescription ?? "unknown")")
                     // Notify JS so the UI can show an error and let user retry
                     self.notifyListeners("monitoringError", data: ["error": "Failed to restart monitoring after app reopen. Please try again."])
                 }
             }
+        } else {
+            ensureBackgroundServicesRunning()
+        }
+    }
+
+    private func configureAudioSessionForCapture() throws {
+        let audioSession = AVAudioSession.sharedInstance()
+        let options: AVAudioSession.CategoryOptions = [.allowBluetooth, .defaultToSpeaker, .mixWithOthers]
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: options)
+        try audioSession.setActive(true)
+    }
+
+    private func deactivateAudioSession(context: String) {
+        internalAudioSessionDeactivationUntil = Date().addingTimeInterval(internalInterruptionGraceWindow)
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("[AudioTriggerNative-iOS] ⚠️ Could not deactivate audio session (\(context)): \(error.localizedDescription)")
+        }
+    }
+
+    private func ensureBackgroundServicesRunning() {
+        guard isMonitoring else { return }
+
+        if sessionToken != nil && emailUsuario != nil {
+            if pingTimer == nil {
+                print("[AudioTriggerNative-iOS] 🔁 Restarting ping timer after app state transition")
+                startPingTimer()
+            }
+            if periodCheckTimer == nil {
+                print("[AudioTriggerNative-iOS] 🔁 Restarting period check timer after app state transition")
+                startPeriodCheckTimer()
+            }
+            if configSyncTimer == nil {
+                print("[AudioTriggerNative-iOS] 🔁 Restarting config sync timer after app state transition")
+                startConfigSyncTimer()
+            }
+        }
+
+        if gpsTimer == nil {
+            let interval: TimeInterval = isRecording
+                ? gpsIntervalRecording
+                : (isWithinMonitoringPeriod() ? gpsIntervalMonitoring : gpsIntervalOutsidePeriod)
+            print("[AudioTriggerNative-iOS] 🔁 Restarting GPS timer after app state transition (\(interval)s)")
+            startGpsTimer(interval: interval)
+        }
+
+        if locationManager == nil {
+            setupLocationManager()
+        } else {
+            let authStatus = locationManager?.authorizationStatus ?? .notDetermined
+            if authStatus == .authorizedAlways {
+                locationManager?.startUpdatingLocation()
+                if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+                    locationManager?.startMonitoringSignificantLocationChanges()
+                }
+            }
+        }
+    }
+
+    private func beginAppTransitionBackgroundTask() {
+        if appTransitionTaskID != .invalid { return }
+        appTransitionTaskID = UIApplication.shared.beginBackgroundTask { [weak self] in
+            self?.endAppTransitionBackgroundTask()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12.0) { [weak self] in
+            self?.endAppTransitionBackgroundTask()
+        }
+    }
+
+    private func endAppTransitionBackgroundTask() {
+        if appTransitionTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(appTransitionTaskID)
+            appTransitionTaskID = .invalid
         }
     }
     
@@ -1932,7 +2370,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        print("[AudioTriggerNative-iOS] 🔑 Have refresh token: \(refresh.prefix(20))...")
+        print("[AudioTriggerNative-iOS] 🔑 Have refresh token: [REDACTED]")
 
         guard let apiUrl = getApiUrl() else {
             print("[AudioTriggerNative-iOS] ❌ Cannot refresh token: API URL not configured")
@@ -1998,11 +2436,6 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
 
-                // Log response body for debugging
-                if let responseBody = String(data: data, encoding: .utf8) {
-                    print("[AudioTriggerNative-iOS] 📄 Refresh response body: \(responseBody.prefix(200))...")
-                }
-
                 do {
                     if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         print("[AudioTriggerNative-iOS] 🔍 Response keys: \(json.keys)")
@@ -2010,8 +2443,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                         if let newAccessToken = json["access_token"] as? String,
                            let newRefreshToken = json["refresh_token"] as? String {
 
-                            print("[AudioTriggerNative-iOS] 🔑 Got new access_token: \(newAccessToken.prefix(20))...")
-                            print("[AudioTriggerNative-iOS] 🔑 Got new refresh_token: \(newRefreshToken.prefix(20))...")
+                            print("[AudioTriggerNative-iOS] 🔑 Got new access_token and refresh_token")
 
                             // Update tokens
                             self.sessionToken = newAccessToken
@@ -2077,13 +2509,17 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let timezoneOffset = TimeZone.current.secondsFromGMT() / 60
         
         // Build payload with all fields
+        // IMPORTANT: for backend semantics, "is_monitoring" must represent scheduled-window state,
+        // not just local engine active state.
+        let withinPeriod = isWithinMonitoringPeriod()
+        let isMonitoringForServer = isMonitoring && withinPeriod
         var payload: [String: Any] = [
             "action": "pingMobile",
             "session_token": token,
             "email_usuario": email,
             "device_id": deviceId,
             "is_recording": isRecording,
-            "is_monitoring": isMonitoring,
+            "is_monitoring": isMonitoringForServer,
             "timezone": timezone,
             "timezone_offset_minutes": timezoneOffset
         ]
@@ -2095,6 +2531,26 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         payload["is_charging"] = isCharging
         payload["dispositivo_info"] = deviceName
         payload["versao_app"] = appVersion
+
+        // Include GPS data in ping payload when available (server spec alignment)
+        if let location = currentLocation {
+            payload["latitude"] = location.coordinate.latitude
+            payload["longitude"] = location.coordinate.longitude
+            let gpsTs = ISO8601DateFormatter().string(from: location.timestamp)
+            payload["timestamp_gps"] = gpsTs
+            payload["location_timestamp"] = gpsTs
+
+            if location.horizontalAccuracy >= 0 {
+                payload["precisao_metros"] = location.horizontalAccuracy
+                payload["location_accuracy"] = location.horizontalAccuracy
+            }
+            if location.speed >= 0 {
+                payload["speed"] = location.speed
+            }
+            if location.course >= 0 {
+                payload["heading"] = Int(location.course)
+            }
+        }
         
         // Get API URL from config
         guard let apiUrl = getApiUrl() else {
@@ -2114,6 +2570,9 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            if let body = request.httpBody {
+                print("[AudioTriggerNative-iOS] 🏓 pingMobile request body: \(redactSensitiveJsonString(from: body))")
+            }
         } catch {
             print("[AudioTriggerNative-iOS] ❌ Failed to serialize ping payload: \(error)")
             return
@@ -2131,7 +2590,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             if let httpResponse = response as? HTTPURLResponse {
                 if httpResponse.statusCode == 200 {
                     self.lastPingTime = Date()
-                    print("[AudioTriggerNative-iOS] 🏓 Ping sent successfully (recording: \(self.isRecording), monitoring: \(!self.isRecording))")
+                    let monitoringForServer = self.isMonitoring && self.isWithinMonitoringPeriod()
+                    print("[AudioTriggerNative-iOS] 🏓 Ping sent successfully (recording: \(self.isRecording), monitoring_local: \(self.isMonitoring), monitoring_server: \(monitoringForServer), periods=\(self.monitoringPeriods.count))")
                 } else if httpResponse.statusCode == 401 {
                     // Token expired - try to refresh
                     print("[AudioTriggerNative-iOS] 🔒 Token expired (401) - attempting refresh")
@@ -2155,25 +2615,25 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                         }
                     }
                 } else if httpResponse.statusCode == 403 {
-                    // Device mismatch or permission error
-                    print("[AudioTriggerNative-iOS] 🚫 Device mismatch (403) - device_id may have changed")
-                    
-                    // Parse error message from response
-                    var errorMessage = "Device mismatch - please login again"
-                    if let data = data,
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let message = json["message"] as? String {
-                        errorMessage = message
+                    // Keep ping read-only: never force logout/device rotation from ping endpoint.
+                    var rawBody = ""
+                    var errorCode = ""
+                    if let data = data {
+                        rawBody = String(data: data, encoding: .utf8) ?? ""
+                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let code = json["error"] as? String {
+                            errorCode = code
+                        }
                     }
-                    
-                    // Stop ping timer
-                    self.stopPingTimer()
-                    
-                    // Notify JavaScript
-                    self.notifyEvent("sessionExpired", data: [
-                        "reason": "device_mismatch",
-                        "message": errorMessage
-                    ])
+
+                    if errorCode.isEmpty {
+                        print("[AudioTriggerNative-iOS] ⚠️ Ping returned 403 (soft-fail). Keeping session active.")
+                    } else {
+                        print("[AudioTriggerNative-iOS] ⚠️ Ping returned 403 (soft-fail), error=\(errorCode). Keeping session active.")
+                    }
+                    if !rawBody.isEmpty {
+                        print("[AudioTriggerNative-iOS] ⚠️ Ping 403 body: \(rawBody)")
+                    }
                 } else {
                     print("[AudioTriggerNative-iOS] ⚠️ Ping returned status \(httpResponse.statusCode)")
                 }
@@ -2190,7 +2650,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         // Fallback to Supabase URL
-        return "https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api"
+        return "https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api"
     }
     
     private func getOrCreateDeviceId() -> String {
@@ -2252,6 +2712,19 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         eventData["event"] = event
         
         notifyListeners("audioTriggerEvent", data: eventData)
+    }
+
+    private func redactSensitiveJsonString(from data: Data) -> String {
+        guard var json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) else {
+            return "invalid"
+        }
+        if json["session_token"] != nil { json["session_token"] = "[REDACTED]" }
+        if json["refresh_token"] != nil { json["refresh_token"] = "[REDACTED]" }
+        guard let redactedData = try? JSONSerialization.data(withJSONObject: json),
+              let redactedString = String(data: redactedData, encoding: .utf8) else {
+            return "invalid"
+        }
+        return redactedString
     }
     
     // MARK: - GPS Location Timer
@@ -2498,6 +2971,8 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         request.httpBody = jsonData
 
         print("[AudioTriggerNative-iOS] 🔄 Syncing configuration from server...")
+        print("[AudioTriggerNative-iOS] 🔄 syncConfigMobile request url: \(url.absoluteString)")
+        print("[AudioTriggerNative-iOS] 🔄 syncConfigMobile request body: \(redactSensitiveJsonString(from: jsonData))")
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
@@ -2507,14 +2982,37 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
             if let httpResponse = response as? HTTPURLResponse {
                 print("[AudioTriggerNative-iOS] 📊 Config sync HTTP Status: \(httpResponse.statusCode)")
+                if let data = data, let rawBody = String(data: data, encoding: .utf8) {
+                    print("[AudioTriggerNative-iOS] 📊 Config sync raw body: \(rawBody)")
+                }
 
                 if httpResponse.statusCode == 200, let data = data {
                     do {
-                        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let configuracoes = json["configuracoes"] as? [String: Any] {
-                            // Notify JavaScript about config update
-                            // Note: monitoringPeriods update is handled by JavaScript layer
-                            self?.notifyEvent("configUpdated", data: configuracoes)
+                        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            if let periodsArray = self?.extractMonitoringPeriodsFromSyncResponse(json),
+                               !periodsArray.isEmpty {
+                                self?.applyMonitoringPeriods(periodsArray, source: "syncConfigurationFromServer")
+                            }
+
+                            var configEventPayload: [String: Any] = [:]
+                            if let configuracoes = json["configuracoes"] as? [String: Any] {
+                                configEventPayload["configuracoes"] = configuracoes
+                            }
+                            if let periodosHoje = json["periodos_hoje"] as? [Any] {
+                                configEventPayload["periodos_hoje"] = periodosHoje
+                            }
+                            if let periodosSemana = json["periodos_semana"] as? [String: Any] {
+                                configEventPayload["periodos_semana"] = periodosSemana
+                            } else if let monitoramento = json["monitoramento"] as? [String: Any],
+                                      let periodosSemana = monitoramento["periodos_semana"] as? [String: Any] {
+                                configEventPayload["periodos_semana"] = periodosSemana
+                            }
+                            if let dentroHorario = json["dentro_horario"] as? Bool {
+                                configEventPayload["dentro_horario"] = dentroHorario
+                            }
+
+                            // Notify JavaScript with full sync payload fields relevant for UI config refresh.
+                            self?.notifyEvent("configUpdated", data: configEventPayload)
                             print("[AudioTriggerNative-iOS] ✅ Configuration synced successfully")
                         }
                     } catch {
@@ -2543,14 +3041,56 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }.resume()
     }
 
+    private func extractMonitoringPeriodsFromSyncResponse(_ json: [String: Any]) -> [Any]? {
+        if let today = json["periodos_hoje"] as? [Any], !today.isEmpty {
+            return today
+        }
+
+        if let cfg = json["configuracoes"] as? [String: Any],
+           let today = cfg["periodos_hoje"] as? [Any],
+           !today.isEmpty {
+            return today
+        }
+
+        let weekdayKeys = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"]
+        let todayKey = weekdayKeys[Calendar.current.component(.weekday, from: Date()) - 1]
+
+        if let week = json["periodos_semana"] as? [String: Any],
+           let periods = week[todayKey] as? [Any],
+           !periods.isEmpty {
+            return periods
+        }
+
+        if let cfg = json["configuracoes"] as? [String: Any],
+           let week = cfg["periodos_semana"] as? [String: Any],
+           let periods = week[todayKey] as? [Any],
+           !periods.isEmpty {
+            return periods
+        }
+
+        return nil
+    }
+
     // Called by AudioSegmentUploader when GPS location is updated
     func updateLocation(_ location: CLLocation) {
         currentLocation = location
         print("[AudioTriggerNative-iOS] 📍 GPS location received from uploader: lat=\(location.coordinate.latitude), lon=\(location.coordinate.longitude)")
     }
     
-    private func sendGpsLocation(isRetry: Bool = false) {
+    private func sendGpsLocation(isRetry: Bool = false, isRecoveryRetry: Bool = false) {
         print("[AudioTriggerNative-iOS] 📍🔄 sendGpsLocation() called - isMonitoring: \(isMonitoring), isRecording: \(isRecording)")
+
+        if let blockedUntil = gpsMismatchBlockedUntil, Date() < blockedUntil {
+            let remaining = Int(blockedUntil.timeIntervalSinceNow)
+            print("[AudioTriggerNative-iOS] ⏭️ GPS send temporarily blocked after mismatch (\(max(remaining, 0))s remaining)")
+            return
+        }
+
+        // Avoid sending stale GPS after monitoring/recording has been stopped.
+        if !isMonitoring && !isRecording {
+            print("[AudioTriggerNative-iOS] ⏭️ Skipping GPS send: monitoring and recording are both inactive")
+            return
+        }
         
         guard let email = emailUsuario else {
             print("[AudioTriggerNative-iOS] ⚠️ Cannot send GPS: missing email")
@@ -2641,6 +3181,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             if let httpResponse = response as? HTTPURLResponse {
                 if httpResponse.statusCode == 200 {
                     // GPS location sent successfully (log removed to avoid console spam)
+                    self.gpsNoDeviceRecoveryAttempts = 0
                 } else if httpResponse.statusCode == 401 {
                     print("[AudioTriggerNative-iOS] 🔒 Token expired (401) - attempting refresh")
 
@@ -2649,7 +3190,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                         self.refreshAccessToken { success in
                             if success {
                                 print("[AudioTriggerNative-iOS] ✅ Token refreshed - retrying GPS location send")
-                                self.sendGpsLocation(isRetry: true)
+                                self.sendGpsLocation(isRetry: true, isRecoveryRetry: isRecoveryRetry)
                             } else {
                                 print("[AudioTriggerNative-iOS] ❌ Token refresh failed for GPS send")
                             }
@@ -2657,12 +3198,189 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     } else {
                         print("[AudioTriggerNative-iOS] ❌ Already retried - stopping to prevent infinite loop")
                     }
+                } else if httpResponse.statusCode == 403 {
+                    // Device mismatch or permission error
+                    print("[AudioTriggerNative-iOS] 🚫 GPS rejected (403)")
+
+                    // Parse message if backend returned one
+                    var errorMessage = "forbidden"
+                    var rawResponseBody = ""
+                    if let data = data, let bodyString = String(data: data, encoding: .utf8) {
+                        rawResponseBody = bodyString
+                    }
+                    if let data = data,
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        if let message = json["message"] as? String {
+                            errorMessage = message
+                        } else if let error = json["error"] as? String {
+                            errorMessage = error
+                        }
+                    }
+
+                    let normalized = errorMessage.lowercased()
+                    print("[AudioTriggerNative-iOS] 🚫 GPS 403 details: \(rawResponseBody.isEmpty ? errorMessage : rawResponseBody)")
+                    let isDeviceMismatch = normalized.contains("device_mismatch")
+                        || normalized.contains("device mismatch")
+                        || normalized.contains("no_device_registered")
+                        || normalized.contains("dispositivo_nao_registrado")
+                        || normalized.contains("device not registered")
+
+                    if isDeviceMismatch {
+                        let isNoDeviceRegistered = normalized.contains("no_device_registered")
+                            || normalized.contains("device not registered")
+                            || normalized.contains("dispositivo_nao_registrado")
+
+                        if isNoDeviceRegistered && !isRecoveryRetry {
+                            if self.gpsNoDeviceRecoveryInProgress {
+                                print("[AudioTriggerNative-iOS] ⚠️ GPS recovery already in progress - skipping duplicate recovery")
+                                return
+                            }
+                            if self.gpsNoDeviceRecoveryAttempts >= self.maxGpsNoDeviceRecoveryAttempts {
+                                self.gpsMismatchBlockedUntil = Date().addingTimeInterval(180)
+                                print("[AudioTriggerNative-iOS] ⚠️ GPS NO_DEVICE_REGISTERED recovery limit reached - keeping session and blocking GPS for 180s")
+                                return
+                            }
+
+                            self.gpsNoDeviceRecoveryInProgress = true
+                            self.gpsNoDeviceRecoveryAttempts += 1
+                            print("[AudioTriggerNative-iOS] 🔄 Attempting one-time NO_DEVICE_REGISTERED recovery (\(self.gpsNoDeviceRecoveryAttempts)/\(self.maxGpsNoDeviceRecoveryAttempts))")
+                            self.attemptDeviceRegistrationRecovery { recovered in
+                                self.gpsNoDeviceRecoveryInProgress = false
+                                if recovered {
+                                    print("[AudioTriggerNative-iOS] ✅ Recovery succeeded - retrying GPS send")
+                                    self.sendGpsLocation(isRetry: false, isRecoveryRetry: true)
+                                } else {
+                                    self.gpsMismatchBlockedUntil = Date().addingTimeInterval(180)
+                                    print("[AudioTriggerNative-iOS] ⚠️ Recovery failed - keeping session and blocking GPS for 180s")
+                                }
+                            }
+                        } else {
+                            // GPS mismatch alone has shown backend inconsistency while session is still valid.
+                            // Keep user logged in and temporarily suppress GPS sends to avoid logout loops.
+                            self.gpsMismatchBlockedUntil = Date().addingTimeInterval(180)
+                            self.gpsNoDeviceRecoveryAttempts = self.maxGpsNoDeviceRecoveryAttempts
+                            print("[AudioTriggerNative-iOS] ⚠️ DEVICE_MISMATCH came only from GPS - keeping session and blocking GPS for 180s")
+                        }
+                    } else {
+                        print("[AudioTriggerNative-iOS] ⚠️ GPS returned 403 (no device mismatch marker): \(errorMessage)")
+                    }
                 } else {
                     print("[AudioTriggerNative-iOS] ⚠️ GPS send returned status \(httpResponse.statusCode)")
                 }
             }
         }
         task.resume()
+    }
+
+    private func attemptDeviceRegistrationRecovery(completion: @escaping (Bool) -> Void) {
+        guard let token = sessionToken, let email = emailUsuario else {
+            print("[AudioTriggerNative-iOS] ❌ Recovery aborted: missing credentials")
+            completion(false)
+            return
+        }
+
+        guard let apiUrl = getApiUrl(), let url = URL(string: apiUrl) else {
+            print("[AudioTriggerNative-iOS] ❌ Recovery aborted: missing/invalid API URL")
+            completion(false)
+            return
+        }
+
+        // Re-sync device_id between Keychain and UserDefaults used by other plugins.
+        let deviceId = getOrCreateDeviceId()
+        UserDefaults.standard.set(deviceId, forKey: "ampara_device_id")
+        UserDefaults.standard.set(deviceId, forKey: "device_id")
+
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
+        let batteryLevel = Int(device.batteryLevel * 100)
+        let isCharging = device.batteryState == .charging || device.batteryState == .full
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let timezone = TimeZone.current.identifier
+        let timezoneOffset = TimeZone.current.secondsFromGMT() / 60
+        let withinPeriod = isWithinMonitoringPeriod()
+        let isMonitoringForServer = isMonitoring && withinPeriod
+
+        var payload: [String: Any] = [
+            "action": "pingMobile",
+            "session_token": token,
+            "email_usuario": email,
+            "device_id": deviceId,
+            "is_recording": isRecording,
+            "is_monitoring": isMonitoringForServer,
+            "timezone": timezone,
+            "timezone_offset_minutes": timezoneOffset,
+            "is_charging": isCharging,
+            "dispositivo_info": device.name,
+            "versao_app": appVersion
+        ]
+
+        if batteryLevel >= 0 {
+            payload["bateria_percentual"] = batteryLevel
+        }
+
+        if let location = currentLocation {
+            payload["latitude"] = location.coordinate.latitude
+            payload["longitude"] = location.coordinate.longitude
+            let gpsTs = ISO8601DateFormatter().string(from: location.timestamp)
+            payload["timestamp_gps"] = gpsTs
+            payload["location_timestamp"] = gpsTs
+
+            if location.horizontalAccuracy >= 0 {
+                payload["precisao_metros"] = location.horizontalAccuracy
+                payload["location_accuracy"] = location.horizontalAccuracy
+            }
+            if location.speed >= 0 {
+                payload["speed"] = location.speed
+            }
+            if location.course >= 0 {
+                payload["heading"] = Int(location.course)
+            }
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
+            print("[AudioTriggerNative-iOS] ❌ Recovery aborted: failed to serialize payload")
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        print("[AudioTriggerNative-iOS] 🧰 Recovery pingMobile request body: \(redactSensitiveJsonString(from: jsonData))")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else {
+                completion(false)
+                return
+            }
+
+            if let error = error {
+                print("[AudioTriggerNative-iOS] ❌ Recovery ping failed: \(error.localizedDescription)")
+                completion(false)
+                return
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("[AudioTriggerNative-iOS] ❌ Recovery ping failed: invalid HTTP response")
+                completion(false)
+                return
+            }
+
+            if httpResponse.statusCode == 200 {
+                // Trigger config sync to let backend refresh device bindings, then continue.
+                self.syncConfigurationFromServer()
+                completion(true)
+                return
+            }
+
+            print("[AudioTriggerNative-iOS] ❌ Recovery ping returned status \(httpResponse.statusCode)")
+            if let data = data, let responseBody = String(data: data, encoding: .utf8) {
+                print("[AudioTriggerNative-iOS] ❌ Recovery ping response: \(responseBody)")
+            }
+            completion(false)
+        }.resume()
     }
     
     private func setupLocationManager() {
@@ -2681,7 +3399,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             self.locationManager?.showsBackgroundLocationIndicator = true
             
             // Request location permission
-            let authStatus = CLLocationManager.authorizationStatus()
+            let authStatus = self.locationManager?.authorizationStatus ?? .notDetermined
             print("[AudioTriggerNative-iOS] 📍 Current GPS authorization status: \(authStatus.rawValue)")
             
             if authStatus == .notDetermined {
@@ -2696,7 +3414,7 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             
             // Start monitoring location only when Always authorization is granted
-            if authStatus == .authorizedAlways && CLLocationManager.locationServicesEnabled() {
+            if authStatus == .authorizedAlways {
                 self.locationManager?.startUpdatingLocation()
                 
                 // Also monitor significant location changes to keep GPS active in background
@@ -2743,10 +3461,8 @@ extension AudioTriggerNativePlugin: CLLocationManagerDelegate {
         case .authorizedAlways:
             print("[AudioTriggerNative-iOS] 🔐 Status: Authorized Always")
             // Restart location updates if authorized
-            if CLLocationManager.locationServicesEnabled() {
-                locationManager?.startUpdatingLocation()
-                print("[AudioTriggerNative-iOS] 📍 Restarted GPS updates after authorization")
-            }
+            locationManager?.startUpdatingLocation()
+            print("[AudioTriggerNative-iOS] 📍 Restarted GPS updates after authorization")
         case .authorizedWhenInUse:
             print("[AudioTriggerNative-iOS] ⚠️ Status: Authorized When In Use - lock-screen background GPS is not guaranteed")
         @unknown default:

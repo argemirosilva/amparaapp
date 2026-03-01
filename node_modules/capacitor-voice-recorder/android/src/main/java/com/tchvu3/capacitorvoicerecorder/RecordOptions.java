@@ -17,4 +17,8 @@ public class RecordOptions {
     public String getSubDirectory() {
         return subDirectory;
     }
+
+    public void setSubDirectory(String subDirectory) {
+        this.subDirectory = subDirectory;
+    }
 }

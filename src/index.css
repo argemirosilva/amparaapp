@@ -6,102 +6,102 @@
 
 @layer base {
   :root {
-    /* Core AMPARA Colors - Light Theme with Ice Gray background */
-    --background: 210 20% 96%;
-    --foreground: 220 30% 20%;
+    /* Dark premium baseline inspired by new concept */
+    --background: 232 36% 9%;
+    --foreground: 220 22% 94%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 270 50% 15%;
+    --card: 231 32% 15%;
+    --card-foreground: 220 22% 94%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 270 50% 15%;
+    --popover: 231 32% 13%;
+    --popover-foreground: 220 22% 94%;
 
-    /* Primary: Purple */
-    --primary: 270 70% 55%;
+    /* Primary: magenta/purple action */
+    --primary: 297 68% 56%;
     --primary-foreground: 0 0% 100%;
 
-    /* Secondary: Pink */
-    --secondary: 330 70% 55%;
-    --secondary-foreground: 0 0% 100%;
+    /* Secondary: deep neutral surface */
+    --secondary: 229 24% 18%;
+    --secondary-foreground: 220 22% 94%;
 
-    --muted: 270 20% 90%;
-    --muted-foreground: 270 30% 40%;
+    --muted: 229 22% 19%;
+    --muted-foreground: 224 14% 71%;
 
-    --accent: 300 60% 50%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 229 24% 20%;
+    --accent-foreground: 220 22% 94%;
 
-    /* Destructive/Panic: Red */
-    --destructive: 0 85% 55%;
+    /* Destructive/Panic */
+    --destructive: 336 84% 58%;
     --destructive-foreground: 0 0% 100%;
 
     /* Success: Green */
-    --success: 142 70% 45%;
+    --success: 170 78% 44%;
     --success-foreground: 0 0% 100%;
 
     /* Warning: Orange */
-    --warning: 38 92% 50%;
+    --warning: 39 92% 52%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 270 20% 85%;
-    --input: 270 20% 92%;
-    --ring: 270 70% 55%;
+    --border: 228 24% 26%;
+    --input: 229 22% 21%;
+    --ring: 0 0% 0%;
 
     --radius: 1rem;
 
     /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(270 70% 55%) 0%, hsl(330 70% 55%) 100%);
-    --gradient-panic: linear-gradient(135deg, hsl(0 85% 55%) 0%, hsl(0 85% 40%) 100%);
-    --gradient-recording: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(0 85% 55%) 100%);
-    --gradient-safe: linear-gradient(135deg, hsl(142 70% 45%) 0%, hsl(170 70% 45%) 100%);
+    --gradient-primary: linear-gradient(140deg, hsl(314 83% 59%) 0%, hsl(272 76% 57%) 100%);
+    --gradient-panic: linear-gradient(140deg, hsl(314 83% 59%) 0%, hsl(272 76% 57%) 100%);
+    --gradient-recording: linear-gradient(140deg, hsl(226 33% 20%) 0%, hsl(230 33% 15%) 100%);
+    --gradient-safe: linear-gradient(135deg, hsl(169 79% 44%) 0%, hsl(194 90% 46%) 100%);
     
     /* Shadows */
-    --shadow-glow-primary: 0 0 40px hsla(270, 70%, 55%, 0.3);
-    --shadow-glow-panic: 0 0 60px hsla(0, 85%, 55%, 0.4);
-    --shadow-glow-recording: 0 0 40px hsla(38, 92%, 50%, 0.3);
+    --shadow-glow-primary: 0 0 28px hsla(298, 83%, 59%, 0.35);
+    --shadow-glow-panic: 0 0 36px hsla(298, 83%, 59%, 0.45);
+    --shadow-glow-recording: 0 0 24px hsla(170, 78%, 44%, 0.25);
 
-    --sidebar-background: 270 30% 96%;
-    --sidebar-foreground: 270 50% 15%;
-    --sidebar-primary: 270 70% 55%;
+    --sidebar-background: 232 36% 10%;
+    --sidebar-foreground: 220 22% 94%;
+    --sidebar-primary: 297 68% 56%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 270 20% 92%;
-    --sidebar-accent-foreground: 270 50% 15%;
-    --sidebar-border: 270 20% 85%;
-    --sidebar-ring: 270 70% 55%;
+    --sidebar-accent: 229 22% 18%;
+    --sidebar-accent-foreground: 220 22% 94%;
+    --sidebar-border: 228 24% 26%;
+    --sidebar-ring: 0 0% 0%;
   }
 
   .dark {
-    /* Dark theme - Purple tones */
-    --background: 270 50% 8%;
-    --foreground: 270 20% 95%;
-    --card: 270 45% 12%;
-    --card-foreground: 270 20% 95%;
-    --popover: 270 45% 12%;
-    --popover-foreground: 270 20% 95%;
-    --primary: 270 70% 55%;
+    /* Dark mode remains aligned with same palette */
+    --background: 232 36% 9%;
+    --foreground: 220 22% 94%;
+    --card: 231 32% 15%;
+    --card-foreground: 220 22% 94%;
+    --popover: 231 32% 13%;
+    --popover-foreground: 220 22% 94%;
+    --primary: 297 68% 56%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 330 70% 55%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 270 30% 20%;
-    --muted-foreground: 270 20% 70%;
-    --accent: 300 60% 50%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 85% 55%;
+    --secondary: 229 24% 18%;
+    --secondary-foreground: 220 22% 94%;
+    --muted: 229 22% 19%;
+    --muted-foreground: 224 14% 71%;
+    --accent: 229 24% 20%;
+    --accent-foreground: 220 22% 94%;
+    --destructive: 336 84% 58%;
     --destructive-foreground: 0 0% 100%;
-    --success: 142 70% 45%;
+    --success: 170 78% 44%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --border: 270 30% 25%;
-    --input: 270 30% 18%;
-    --ring: 270 70% 55%;
-    --sidebar-background: 270 50% 8%;
-    --sidebar-foreground: 270 20% 95%;
-    --sidebar-primary: 270 70% 55%;
+    --border: 228 24% 26%;
+    --input: 229 22% 21%;
+    --ring: 0 0% 0%;
+    --sidebar-background: 232 36% 10%;
+    --sidebar-foreground: 220 22% 94%;
+    --sidebar-primary: 297 68% 56%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 270 45% 15%;
-    --sidebar-accent-foreground: 270 20% 95%;
-    --sidebar-border: 270 30% 25%;
-    --sidebar-ring: 270 70% 55%;
+    --sidebar-accent: 229 22% 18%;
+    --sidebar-accent-foreground: 220 22% 94%;
+    --sidebar-border: 228 24% 26%;
+    --sidebar-ring: 0 0% 0%;
   }
 }
 
@@ -169,9 +169,39 @@
 
   /* Glass effect */
   .glass {
-    background: hsla(270, 45%, 12%, 0.8);
+    background: hsla(231, 32%, 15%, 0.78);
     backdrop-filter: blur(12px);
-    border: 1px solid hsla(270, 30%, 25%, 0.5);
+    border: 1px solid hsla(228, 24%, 30%, 0.55);
+  }
+
+  .bg-app-deep {
+    background:
+      radial-gradient(1000px 600px at 50% 20%, hsla(261, 76%, 40%, 0.16), transparent 60%),
+      radial-gradient(900px 500px at 50% 80%, hsla(302, 81%, 46%, 0.10), transparent 65%),
+      hsl(var(--background));
+  }
+
+  .card-glass-dark {
+    background: hsla(231, 32%, 15%, 0.72);
+    backdrop-filter: blur(14px);
+    border: 1px solid hsla(228, 24%, 30%, 0.6);
+    box-shadow: 0 12px 28px hsla(232, 50%, 4%, 0.35);
+  }
+
+  .btn-primary-neon {
+    background: var(--gradient-primary);
+    color: hsl(var(--primary-foreground));
+    box-shadow: var(--shadow-glow-primary);
+  }
+
+  .chip-teal-outline {
+    border: 1.5px solid hsla(170, 78%, 44%, 0.9);
+    color: hsl(170 78% 52%);
+    background: hsla(170, 78%, 44%, 0.08);
+  }
+
+  .glow-magenta-soft {
+    box-shadow: 0 0 30px hsla(297, 68%, 56%, 0.35);
   }
 }
 

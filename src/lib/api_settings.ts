@@ -7,7 +7,7 @@ import { getSessionToken, getUserEmail } from './api';
 import { ApiResponse } from './types';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 
-  'https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api';
+  'https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api';
 
 // ============================================
 // Types
@@ -71,6 +71,13 @@ async function settingsApi<T>(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15000), // 15s timeout
     });
+
+    if (response.status === 401) {
+      if (action === 'validate_password') {
+        return { data: null, error: 'Senha inválida' };
+      }
+      return { data: null, error: 'Sessão expirada. Faça login novamente.' };
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);

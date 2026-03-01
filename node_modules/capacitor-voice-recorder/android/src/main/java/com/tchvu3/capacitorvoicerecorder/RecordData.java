@@ -4,18 +4,18 @@ import com.getcapacitor.JSObject;
 
 public class RecordData {
 
-    private String uri;
+    private String path;
     private String recordDataBase64;
     private String mimeType;
     private int msDuration;
 
     public RecordData() {}
 
-    public RecordData(String recordDataBase64, int msDuration, String mimeType, String uri) {
+    public RecordData(String recordDataBase64, int msDuration, String mimeType, String path) {
         this.recordDataBase64 = recordDataBase64;
         this.msDuration = msDuration;
         this.mimeType = mimeType;
-        this.uri = uri;
+        this.path = path;
     }
 
     public String getRecordDataBase64() {
@@ -47,7 +47,7 @@ public class RecordData {
         toReturn.put("recordDataBase64", recordDataBase64);
         toReturn.put("msDuration", msDuration);
         toReturn.put("mimeType", mimeType);
-        toReturn.put("uri", uri);
+        toReturn.put("path", path);
         return toReturn;
     }
 }

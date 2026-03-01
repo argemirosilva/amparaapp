@@ -21,6 +21,7 @@ class CustomMediaRecorder {
         if let directory = getDirectory(directory: options.directory),
            var outputDirURL = FileManager.default.urls(for: directory, in: .userDomainMask).first {
             if let subDirectory = options.subDirectory?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+                options.setSubDirectory(to: subDirectory)
                 outputDirURL = outputDirURL.appendingPathComponent(subDirectory, isDirectory: true)
 
                 do {

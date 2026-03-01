@@ -4,18 +4,24 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, HelpCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-// Logo removed from settings pages
+import { Logo } from '@/components/Logo';
 
 export default function AboutPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* iOS SafeArea spacer */}
-      <div className="h-[env(safe-area-inset-top)] bg-background shrink-0" />
+    <div className="min-h-screen bg-background flex flex-col safe-area-inset-top safe-area-inset-bottom">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: '3rem' }}>
-        <div className="flex items-center gap-3">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-4 pb-4"
+        style={{
+          paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)',
+          minHeight: 'calc(env(safe-area-inset-top) + 6.5rem)',
+        }}
+      >
+        <div className="flex items-end gap-3 h-full">
           <Button
             variant="ghost"
             size="icon"
@@ -24,9 +30,12 @@ export default function AboutPage() {
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-lg font-semibold">Sobre</h1>
+          <div className="flex items-center gap-2">
+            <Logo size="sm" />
+            <h1 className="text-lg font-semibold">Sobre</h1>
+          </div>
         </div>
-      </header>
+      </motion.div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-4 py-6">

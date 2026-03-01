@@ -6,7 +6,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Ear, EarOff, Mic, Sparkles } from 'lucide-react';
+import { Ear, EarOff } from 'lucide-react';
 import type { TriggerState } from '@/types/audioTrigger';
 import type { MonitoringPeriod, PeriodosSemana, OrigemGravacao } from '@/lib/types';
 
@@ -74,19 +74,10 @@ const getGradientColor = (score: number, isCalibrated: boolean, dentroHorario: b
   }
 };
 
-const formatDuration = (seconds: number): string => {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-};
-
 export function AudioTriggerMeter({
   score,
   isCapturing,
   state,
-  isRecording,
-  recordingDuration = 0,
-  recordingOrigin = null,
   dentroHorario = false,
   periodoAtualIndex = null,
   periodosHoje = [],
@@ -212,20 +203,6 @@ export function AudioTriggerMeter({
         ? 'next' 
         : 'none';
 
-  // Determine if recording is automatic
-  const isAutoRecording = recordingOrigin === 'automatico';
-  
-  // Get status text for recording
-  const getRecordingText = () => {
-    if (isRecording) {
-      const prefix = isAutoRecording ? 'AUTO' : 'REC';
-      return `${prefix} ${formatDuration(recordingDuration)}`;
-    }
-    return null;
-  };
-
-  const recordingText = getRecordingText();
-
   return (
     <div className="flex flex-col items-center gap-2">
       {/* Circular meter */}
@@ -251,8 +228,8 @@ export function AudioTriggerMeter({
           
 
           
-          {/* Progress arc with gradient color - Only show when NOT recording */}
-          {score > 0 && !isRecording && (
+          {/* Progress arc with gradient color */}
+          {score > 0 && (
             <motion.circle
               cx={size / 2}
               cy={size / 2}
@@ -272,7 +249,7 @@ export function AudioTriggerMeter({
                 stroke: { duration: 0.3 },
               }}
               style={{
-                filter: isRecording ? `drop-shadow(0 0 6px ${strokeColor})` : 'none',
+                filter: `drop-shadow(0 0 6px ${strokeColor})`,
               }}
             />
           )}
@@ -280,8 +257,8 @@ export function AudioTriggerMeter({
         
         {/* Center icon with sound waves */}
         <div className="absolute inset-0 flex items-center justify-center">
-          {/* Sound wave animations - Show when capturing but NOT recording */}
-          {isCapturing && !isRecording && (
+          {/* Sound wave animations */}
+          {isCapturing && (
             <>
               {[0, 1, 2].map((i) => (
                 <motion.div
@@ -305,39 +282,21 @@ export function AudioTriggerMeter({
             </>
           )}
           
-          {/* Recording indicator - Red pulsing circle */}
-          {isRecording ? (
-            <motion.div
-              className="w-8 h-8 rounded-full bg-red-600 relative z-10"
-              animate={{
-                scale: [1, 1.2, 1],
-                opacity: [0.9, 1, 0.9],
-              }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-              style={{
-                boxShadow: '0 0 20px rgba(220, 38, 38, 0.8)',
-              }}
-            />
-          ) : (
-            <motion.div
-              animate={isCapturing ? {
-                scale: [1, 1.1, 1],
-              } : {}}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-              className={`p-1.5 rounded-full relative z-10 ${
-                isCapturing 
-                  ? 'bg-success/10' 
-                  : 'bg-muted/40'
-              }`}
-            >
+          <motion.div
+            animate={isCapturing ? {
+              scale: [1, 1.1, 1],
+            } : {}}
+            transition={{
+              duration: 1.5,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+            className={`p-1.5 rounded-full relative z-10 ${
+              isCapturing
+                ? 'bg-success/10'
+                : 'bg-muted/40'
+            }`}
+          >
             {isCapturing ? (
               <Ear 
                 className={`w-3.5 h-3.5 ${
@@ -350,35 +309,17 @@ export function AudioTriggerMeter({
               <EarOff className="w-3.5 h-3.5 text-muted-foreground" />
             )}
           </motion.div>
-          )}
+
         </div>
       </div>
-      
-      {/* Recording status text */}
-      {recordingText && (
-        <motion.div
-          key={isRecording ? 'recording' : 'idle'}
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col items-center gap-0.5"
-        >
-          <span className={`text-xs font-medium ${isAutoRecording ? 'text-amber-500' : 'text-destructive'}`}>
-            {recordingText}
-          </span>
-          <span className="text-[10px] text-muted-foreground">
-            {isAutoRecording ? 'Discussão detectada' : 'Gravação manual'}
-          </span>
-        </motion.div>
-      )}
 
-      {/* Integrated monitoring status */}
-      {!recordingText && (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          onClick={() => navigate('/schedule')}
-          className="flex flex-col items-center gap-0.5 hover:opacity-80 transition-opacity"
-        >
+      {/* Integrated monitoring status (always visible/clickable) */}
+      <motion.button
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        onClick={() => navigate('/schedule')}
+        className="flex flex-col items-center gap-0.5 hover:opacity-80 transition-opacity"
+      >
           {monitoringStatus === 'loading' && (
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-muted animate-pulse" />
@@ -442,8 +383,7 @@ export function AudioTriggerMeter({
               </span>
             </div>
           )}
-        </motion.button>
-      )}
+      </motion.button>
     </div>
   );
 }

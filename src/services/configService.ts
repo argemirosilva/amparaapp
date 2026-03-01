@@ -4,11 +4,13 @@
  */
 
 import { syncConfigMobile, getCachedConfig } from '@/lib/api';
+import { getSessionToken, getUserEmail } from '@/lib/api';
 import SecureStorage from '@/plugins/SecureStorage';
 import type { ConfigSyncResponse } from '@/lib/types';
 import { hybridAudioTrigger } from './hybridAudioTriggerService';
 import { AudioTriggerNative } from '@/plugins/audioTriggerNative';
 import { Capacitor } from '@capacitor/core';
+import { getRefreshToken, getUserData } from './sessionService';
 
 // ============================================
 // Types
@@ -209,9 +211,17 @@ function transformApiConfigToAppConfig(apiResponse: ConfigSyncResponse): AppConf
   console.log('[ConfigService] audio_trigger_config from API -> IGNORED');
   // ==================================================
   
-  // Use fields directly from apiResponse (not from configuracoes)
-  // periodos_hoje already has { inicio, fim } format
-  const periods = apiResponse.periodos_hoje || [];
+  // Prefer periodos_hoje from API; fallback to current weekday from periodos_semana.
+  let periods = apiResponse.periodos_hoje || [];
+  if ((!periods || periods.length === 0) && apiResponse.periodos_semana) {
+    const weekdayKeys = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'] as const;
+    const todayKey = weekdayKeys[new Date().getDay()];
+    periods = apiResponse.periodos_semana[todayKey] || [];
+    console.log('[ConfigService] periodos_hoje vazio; usando fallback de periodos_semana', {
+      todayKey,
+      fallbackCount: periods.length
+    });
+  }
   
   return {
     version: Date.now(),
@@ -251,12 +261,12 @@ async function updateNativeAudioTrigger(config: AppConfig): Promise<void> {
   
   try {
     // Get current session tokens
-    const sessionToken = sessionService.getSessionToken();
-    const refreshToken = sessionService.getRefreshToken();
-    const userData = sessionService.getUserData();
+    const sessionToken = getSessionToken();
+    const refreshToken = getRefreshToken();
+    const userData = getUserData();
     
-    // Parse email from user data
-    let emailUsuario: string | undefined;
+    // Parse email from user data (fallback to api helper)
+    let emailUsuario: string | undefined = getUserEmail() || undefined;
     if (userData) {
       try {
         const user = JSON.parse(userData);

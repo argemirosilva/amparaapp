@@ -45,6 +45,7 @@ public class CustomMediaRecorder {
                 Pattern pattern = Pattern.compile("^/?(.+[^/])/?$");
                 Matcher matcher = pattern.matcher(subDirectory);
                 if (matcher.matches()) {
+                    options.setSubDirectory(matcher.group(1));
                     outputDir = new File(outputDir, matcher.group(1));
                     if (!outputDir.exists()) {
                         outputDir.mkdirs();

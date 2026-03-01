@@ -7,26 +7,28 @@ interface RecordButtonProps {
   isRecording: boolean;
   disabled?: boolean;
   isLoading?: boolean;
-  isStopping?: boolean;
 }
 
-export function RecordButton({ onClick, isRecording, disabled = false, isLoading = false, isStopping = false }: RecordButtonProps) {
-  const isDisabled = disabled || isLoading || isStopping;
-  
+export function RecordButton({ onClick, isRecording, disabled = false, isLoading = false }: RecordButtonProps) {
+  const isDisabled = disabled || isLoading;
+
   return (
     <motion.button
       onClick={isDisabled ? undefined : onClick}
       disabled={isDisabled}
       className={`
-        relative w-20 h-20 rounded-full
+        relative w-24 h-24 rounded-full
         flex flex-col items-center justify-center gap-1
         transition-all duration-200
+        border border-border luminosity-effect
         ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'}
-        ${isRecording 
-          ? 'bg-purple-500 text-white hover:bg-purple-600' 
-          : 'bg-red-600 text-white hover:bg-red-700'
+        ${isRecording
+          ? 'bg-destructive text-white hover:bg-destructive/90 shadow-glow-recording'
+          : 'bg-black text-white hover:bg-black/90'
         }
       `}
+
+
       whileTap={isDisabled ? undefined : { scale: 0.95 }}
     >
       {/* Icon */}
@@ -37,10 +39,10 @@ export function RecordButton({ onClick, isRecording, disabled = false, isLoading
       ) : (
         <Mic className="w-6 h-6" />
       )}
-      
+
       {/* Text */}
       <span className="text-[10px] font-medium leading-tight text-center">
-        {isStopping ? 'Parando...' : isRecording ? 'Parar' : 'Gravar'}
+        {isRecording ? 'Parar' : 'Gravar'}
       </span>
     </motion.button>
   );

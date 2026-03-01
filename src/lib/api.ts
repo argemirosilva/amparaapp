@@ -25,7 +25,7 @@ import {
 
 // API Base URL - single endpoint with action field
 const API_URL = import.meta.env.VITE_API_BASE_URL || 
-  'https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api';
+  'https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api';
 
 // ============================================
 // Session Token Management
@@ -70,6 +70,7 @@ async function mobileApi<T>(
   options: { requiresAuth?: boolean } = {}
 ): Promise<ApiResponse<T>> {
   const { requiresAuth = true } = options;
+  const isSyncConfigAction = action === 'syncConfigMobile';
 
   // CRITICAL: For login action on iOS, wait for device_id initialization from Keychain
   // This ensures we send the persistent Keychain device_id, not a randomly generated one
@@ -118,6 +119,15 @@ async function mobileApi<T>(
     }
   }
 
+  if (isSyncConfigAction) {
+    const redactedBody = { ...body } as Record<string, unknown>;
+    if (redactedBody.session_token) redactedBody.session_token = '[REDACTED]';
+    if (redactedBody.refresh_token) redactedBody.refresh_token = '[REDACTED]';
+    console.log('[API][SYNC_CONFIG][REQUEST] ######## PAYLOAD ########');
+    console.log('[API] syncConfigMobile URL:', API_URL);
+    console.log('[API] syncConfigMobile REQUEST body:', JSON.stringify(redactedBody, null, 2));
+  }
+
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -126,6 +136,13 @@ async function mobileApi<T>(
       },
       body: JSON.stringify(body),
     });
+
+    if (isSyncConfigAction) {
+      const rawText = await response.clone().text();
+      console.log('[API][SYNC_CONFIG][RESPONSE] ######## RAW RESPONSE ########');
+      console.log('[API] syncConfigMobile HTTP status:', response.status);
+      console.log('[API] syncConfigMobile RAW body:', rawText);
+    }
 
     // Handle 401 Unauthorized - try to refresh token
     if (response.status === 401 && requiresAuth) {
@@ -151,6 +168,17 @@ async function mobileApi<T>(
           
           if (!retryResponse.ok) {
             const errorData = await retryResponse.json().catch(() => ({}));
+            const errorMsg = String(errorData?.error || errorData?.message || '').toLowerCase();
+            const isDeviceMismatch = retryResponse.status === 403 && (
+              errorMsg.includes('device') ||
+              errorMsg.includes('device_id') ||
+              errorMsg.includes('dispositivo')
+            );
+            if (isDeviceMismatch) {
+              window.dispatchEvent(new CustomEvent('session_expired', {
+                detail: { reason: 'device_mismatch' }
+              }));
+            }
             return { 
               data: null, 
               error: errorData.error || errorData.message || `Erro ${retryResponse.status}` 
@@ -177,6 +205,17 @@ async function mobileApi<T>(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const errorMsg = String(errorData?.error || errorData?.message || '').toLowerCase();
+      const isDeviceMismatch = response.status === 403 && (
+        errorMsg.includes('device') ||
+        errorMsg.includes('device_id') ||
+        errorMsg.includes('dispositivo')
+      );
+      if (isDeviceMismatch) {
+        window.dispatchEvent(new CustomEvent('session_expired', {
+          detail: { reason: 'device_mismatch' }
+        }));
+      }
       return { 
         data: null, 
         error: errorData.error || errorData.message || `Erro ${response.status}` 
@@ -484,9 +523,11 @@ export async function reportarStatusGravacao(
  * Sync user configuration
  */
 export async function syncConfigMobile(): Promise<ApiResponse<ConfigSyncResponse>> {
+  console.log('[API][SYNC_CONFIG][START] ######## SYNC_CONFIG_MOBILE CHAMADO ########');
   console.log('[API] Calling syncConfigMobile...');
   
   const result = await mobileApi<any>('syncConfigMobile');
+  console.log('[API][SYNC_CONFIG][RAW] ######## RESPONSE RECEBIDA ########');
   
   console.log('[API] syncConfigMobile raw response:', JSON.stringify(result, null, 2));
   
@@ -495,25 +536,33 @@ export async function syncConfigMobile(): Promise<ApiResponse<ConfigSyncResponse
     return { data: null, error: result.error || 'Failed to sync config' };
   }
   
-  // Backend now returns data directly, not wrapped in 'configuracoes'
-  // Transform the flat response into the expected ConfigSyncResponse format
+  // Accept both response shapes:
+  // 1) flat fields at root (newer backend)
+  // 2) fields nested under `configuracoes` (legacy/variant backend)
+  const root: any = result.data;
+  const nested: any = root?.configuracoes ?? {};
+  const monitoramento: any = root?.monitoramento ?? nested?.monitoramento ?? {};
+  const pick = (key: string, fallback: any = undefined) =>
+    root?.[key] ?? nested?.[key] ?? monitoramento?.[key] ?? fallback;
+
+  // Transform into the expected ConfigSyncResponse format
   const configResponse: ConfigSyncResponse = {
     configuracoes: {
-      contatos_suporte: result.data.contatos_rede_apoio || [],
+      contatos_suporte: pick('contatos_rede_apoio', []),
       gatilhos: {
-        voz: result.data.gravacao_ativa_config ?? true,
+        voz: pick('gravacao_ativa_config', true),
         manual: true
       }
     },
-    dentro_horario: result.data.dentro_horario ?? false,
-    gravacao_ativa: result.data.gravacao_ativa ?? false,
-    periodo_atual_index: result.data.periodo_atual_index ?? null,
-    gravacao_inicio: result.data.gravacao_inicio ?? null,
-    gravacao_fim: result.data.gravacao_fim ?? null,
-    periodos_hoje: result.data.periodos_hoje ?? [],
-    gravacao_dias: result.data.gravacao_dias ?? [],
-    audio_trigger_config: result.data.audio_trigger_config ?? null,
-    periodos_semana: result.data.periodos_semana ?? null,
+    dentro_horario: pick('dentro_horario', false),
+    gravacao_ativa: pick('gravacao_ativa', false),
+    periodo_atual_index: pick('periodo_atual_index', null),
+    gravacao_inicio: pick('gravacao_inicio', null),
+    gravacao_fim: pick('gravacao_fim', null),
+    periodos_hoje: pick('periodos_hoje', []),
+    gravacao_dias: pick('gravacao_dias', pick('dias_gravacao', [])),
+    audio_trigger_config: pick('audio_trigger_config', null),
+    periodos_semana: pick('periodos_semana', monitoramento?.periodos_semana ?? null),
     ultima_atualizacao: new Date().toISOString()
   };
   

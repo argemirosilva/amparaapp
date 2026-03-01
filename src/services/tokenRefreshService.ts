@@ -5,7 +5,8 @@
 
 import { getRefreshToken, setSessionToken, setRefreshToken, clearSession } from './sessionService';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.ampara.app.br';
+const RAW_API_URL = import.meta.env.VITE_API_BASE_URL || 'https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api';
+const API_URL = RAW_API_URL.endsWith('/mobile-api') ? RAW_API_URL : `${RAW_API_URL.replace(/\/$/, '')}/mobile-api`;
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
@@ -44,7 +45,7 @@ export async function refreshAccessToken(): Promise<boolean> {
       }
       
       // Call the backend refresh endpoint
-      const response = await fetch(`${API_BASE_URL}/mobile-api`, {
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

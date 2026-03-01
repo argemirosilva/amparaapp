@@ -69,12 +69,17 @@ public class VoiceRecorder: CAPPlugin {
             return
         }
 
+        var path = audioFileUrl!.lastPathComponent
+        if let subDirectory = customMediaRecorder?.options?.subDirectory {
+            path = subDirectory + "/" + path
+        }
+
         let sendDataAsBase64 = customMediaRecorder?.options?.directory == nil
         let recordData = RecordData(
             recordDataBase64: sendDataAsBase64 ? readFileAsBase64(audioFileUrl) : nil,
             mimeType: "audio/aac",
             msDuration: getMsDurationOfAudioFile(audioFileUrl),
-            uri: sendDataAsBase64 ? nil : audioFileUrl!.path
+            path: sendDataAsBase64 ? nil : path
         )
         customMediaRecorder = nil
         if (sendDataAsBase64 && recordData.recordDataBase64 == nil) || recordData.msDuration < 0 {

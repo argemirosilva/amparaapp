@@ -13,15 +13,17 @@ import { isAudioFile, convertAudioTo16kWav, getConvertedFileName } from '@/lib/a
 
 type UploadStatus = 'idle' | 'uploading' | 'success' | 'error' | 'converting';
 
-const API_URL = import.meta.env.VITE_API_BASE_URL || 
-  'https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api';
+const API_URL = import.meta.env.VITE_API_BASE_URL ||
+  'https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api';
+
+const API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvZ2Vud2N5Y3F5a2ZzdW9uZ3JsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4Mjg2NjIsImV4cCI6MjA4NjQwNDY2Mn0.hncTs6DDS-sbb8sT_QBOBf1mTcTu0e_Pc5yXo4tHZwE';
 
 export function UploadPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const appState = useAppState();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [convertedBlob, setConvertedBlob] = useState<Blob | null>(null);
   const [originalSize, setOriginalSize] = useState<number>(0);
@@ -69,7 +71,7 @@ export function UploadPage() {
     return new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
       const formData = new FormData();
-      
+
       formData.append('action', 'uploadArquivo');
       formData.append('session_token', getSessionToken() || '');
       formData.append('device_id', getDeviceId());
@@ -98,6 +100,7 @@ export function UploadPage() {
       });
 
       xhr.open('POST', API_URL);
+      xhr.setRequestHeader('apikey', API_KEY);
       xhr.send(formData);
     });
   };
@@ -114,8 +117,8 @@ export function UploadPage() {
       fileToUpload = new Blob([convertedBlob], { type: 'audio/wav' });
     }
 
-    const fileName = convertedBlob 
-      ? getConvertedFileName(selectedFile.name) 
+    const fileName = convertedBlob
+      ? getConvertedFileName(selectedFile.name)
       : selectedFile.name;
 
     const { success } = await uploadFileWithProgress(
@@ -132,7 +135,7 @@ export function UploadPage() {
       });
     } else {
       setUploadStatus('error');
-      
+
       // Add to pending queue
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -145,7 +148,7 @@ export function UploadPage() {
         appState.refreshPendingCount();
       };
       reader.readAsDataURL(selectedFile);
-      
+
       toast({
         title: 'Falha no envio',
         description: 'Arquivo salvo para envio posterior.',
@@ -172,17 +175,13 @@ export function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* iOS SafeArea spacer */}
-      <div className="h-[env(safe-area-inset-top)] bg-background shrink-0" />
+    <div className="min-h-screen flex flex-col bg-background safe-area-inset-top safe-area-inset-bottom">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: '3rem' }}>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="h-9 w-9">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <h1 className="text-lg font-semibold">Enviar Arquivo</h1>
-        </div>
+      <header
+        className="flex items-center gap-4 px-4 pb-3 border-b border-border"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
+      >
+        <h1 className="text-lg font-semibold">Enviar Arquivo</h1>
       </header>
 
       {/* Content */}
@@ -337,6 +336,21 @@ export function UploadPage() {
           </motion.div>
         )}
       </main>
+
+      {/* Bottom back button */}
+      <div
+        className="border-t border-border px-4 pt-3 bg-background/70 backdrop-blur-md"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
+      >
+        <Button
+          variant="outline"
+          className="w-full h-11"
+          onClick={() => navigate('/')}
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Voltar
+        </Button>
+      </div>
     </div>
   );
 }

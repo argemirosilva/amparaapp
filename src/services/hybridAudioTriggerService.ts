@@ -96,6 +96,7 @@ class HybridAudioTriggerService {
     // CRITICAL: Sync status from native service on init
     // This handles the case where Android killed the JS process but native service is still running
     this.syncStatusFromNative();
+    this.refreshModeFromNativeRunning();
   }
 
   /**
@@ -280,10 +281,11 @@ class HybridAudioTriggerService {
         
         // CRITICAL: Re-sync calibration status from native when returning to foreground
         // The native service may be calibrated but JS lost the state
-        if (this.mode === 'RUNNING' && Capacitor.isNativePlatform()) {
+        if (Capacitor.isNativePlatform()) {
           try {
             await AudioTriggerNative.getStatus();
             console.log('[HybridAudioTrigger] 🔄 Status sync requested from native');
+            await this.refreshModeFromNativeRunning();
           } catch (error) {
             console.error('[HybridAudioTrigger] Failed to sync status from native:', error);
           }
@@ -324,6 +326,13 @@ class HybridAudioTriggerService {
 
     AudioTriggerNative.addListener('audioTriggerEvent', (event) => {
       console.log('[HybridAudioTrigger] 📡 Native event:', event.event);
+
+      // Keep Hybrid mode aligned with native runtime whenever we receive native traffic.
+      if (this.mode !== 'RUNNING' && event.event !== 'fgsNotEligible') {
+        this.mode = 'RUNNING';
+        this.pendingStart = false;
+        this.notifyStateChange();
+      }
       
       // Handle FGS not eligible event
       if (event.event === 'fgsNotEligible') {
@@ -448,6 +457,27 @@ class HybridAudioTriggerService {
       console.log('[HybridAudioTrigger] ✅ Status sync requested');
     } catch (error) {
       console.log('[HybridAudioTrigger] ℹ️ Native service not running or error:', error);
+    }
+  }
+
+  /**
+   * Sync hybrid mode based on native running status.
+   * Prevents stale STOPPED mode in JS when native is already alive.
+   */
+  private async refreshModeFromNativeRunning() {
+    if (!Capacitor.isNativePlatform()) return;
+
+    try {
+      const result = await AudioTriggerNative.isRunning();
+      const isRunning = !!result?.isRunning;
+      if (isRunning && this.mode !== 'RUNNING') {
+        console.log('[HybridAudioTrigger] ✅ Native is running, switching mode to RUNNING');
+        this.mode = 'RUNNING';
+        this.pendingStart = false;
+        this.notifyStateChange();
+      }
+    } catch (error) {
+      console.warn('[HybridAudioTrigger] Could not query native running status:', error);
     }
   }
 

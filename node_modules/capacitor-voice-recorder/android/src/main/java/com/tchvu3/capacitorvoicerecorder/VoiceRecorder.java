@@ -102,10 +102,13 @@ public class VoiceRecorder extends Plugin {
             File recordedFile = mediaRecorder.getOutputFile();
             RecordOptions options = mediaRecorder.getRecordOptions();
 
+            String path = null;
             String recordDataBase64 = null;
-            String uri = null;
             if (options.getDirectory() != null) {
-                uri = Uri.fromFile(recordedFile).toString();
+                path = recordedFile.getName();
+                if (options.getSubDirectory() != null) {
+                    path = options.getSubDirectory() + "/" + path;
+                }
             } else {
                 recordDataBase64 = readRecordedFileAsBase64(recordedFile);
             }
@@ -114,9 +117,9 @@ public class VoiceRecorder extends Plugin {
                 recordDataBase64,
                 getMsDurationOfAudioFile(recordedFile.getAbsolutePath()),
                 "audio/aac",
-                uri
+                path
             );
-            if ((recordDataBase64 == null && uri == null) || recordData.getMsDuration() < 0) {
+            if ((recordDataBase64 == null && path == null) || recordData.getMsDuration() < 0) {
                 call.reject(Messages.EMPTY_RECORDING);
             } else {
                 call.resolve(ResponseGenerator.dataResponse(recordData.toJSObject()));

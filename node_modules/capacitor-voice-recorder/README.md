@@ -116,7 +116,7 @@ VoiceRecorder.hasAudioRecordingPermission().then((result: GenericResponse) => co
 
 Start the audio recording.
 
-Optional options can be used with this method to save the file in the device's filesystem and return a uri to that file instead of a base64 string.
+Optional options can be used with this method to save the file in the device's filesystem and return a path to that file instead of a base64 string.
 This greatly increases performance for large files.
 
 ```typescript
@@ -146,7 +146,7 @@ VoiceRecorder.startRecording(options?: RecordingOptions)
 
 Stops the audio recording and returns the recording data.
 
-When a `directory` option has been passed to the `VoiceRecorder.startRecording` method the data will include a `uri` instead of a `recordDataBase64`
+When a `directory` option has been passed to the `VoiceRecorder.startRecording` method the data will include a `path` instead of a `recordDataBase64`
 
 ```typescript
 VoiceRecorder.stopRecording()
@@ -159,7 +159,7 @@ VoiceRecorder.stopRecording()
 | `recordDataBase64` | The recorded audio data in Base64 format.      |
 | `msDuration`       | The duration of the recording in milliseconds. |
 | `mimeType`         | The MIME type of the recorded audio.           |
-| `uri`              | The URI to the audio file                      |
+| `path`             | The path to the audio file                     |
 
 | Error Code                  | Description                                          |
 |-----------------------------|------------------------------------------------------|
@@ -242,12 +242,49 @@ As this plugin focuses on the recording aspect, it does not provide any conversi
 
 To play the recorded file, you can use plain JavaScript:
 
+### With Base64 string
 ```typescript
 const base64Sound = '...' // from plugin
 const mimeType = '...'  // from plugin
 const audioRef = new Audio(`data:${mimeType};base64,${base64Sound}`)
 audioRef.oncanplaythrough = () => audioRef.play()
 audioRef.load()
+```
+
+### With Blob
+```typescript
+import { Capacitor } from '@capacitor/core'
+import { Directory, Filesystem } from '@capacitor/filesystem'
+
+const PATH = '...' // from plugin
+
+/** Generate a URL to the blob file with @capacitor/core and @capacitor/filesystem */
+const getBlobURL = async (path: string) => {
+  const directory = Directory.Data // Same Directory as the one you used with VoiceRecorder.startRecording
+
+  if (config.public.platform === 'web') {
+    const { data } = await Filesystem.readFile({ directory, path })
+    return URL.createObjectURL(data)
+  }
+
+  const { uri } = await Filesystem.getUri({ directory, path })
+  return Capacitor.convertFileSrc(uri)
+}
+
+/** Read the audio file */
+const play = async () => {
+  const url = await getBlobURL(PATH)
+  const audioRef = new Audio(url)
+  audioRef.onended = () => { URL.revokeObjectUrl(url) }
+  audioRef.play()
+}
+
+/** Load the audio file (ie: to send to a Cloud Storage service) */
+const load = async () => {
+  const url = await getBlobURL(PATH)
+  const response = await fetch(url)
+  return response.blob()
+}
 ```
 
 ## Compatibility

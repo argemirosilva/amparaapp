@@ -7,7 +7,7 @@ import { getSessionToken, getUserEmail } from './api';
 import { getDeviceId } from './deviceId';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 
-  'https://ilikiajeduezvvanjejz.supabase.co/functions/v1/mobile-api';
+  'https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api';
 
 /**
  * Validate the current session token with the server
@@ -31,7 +31,7 @@ export async function validateSessionToken(): Promise<boolean> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        action: 'ping',
+        action: 'pingMobile',
         device_id: getDeviceId(),
         session_token: token,
         email_usuario: email,

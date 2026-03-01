@@ -54,12 +54,17 @@ export function LogoutConfirmDialog({ isOpen, onClose, onConfirm }: LogoutConfir
         // Se o erro for relacionado a sessão inválida, forçamos o logout local SEM chamar API
         const errorLower = result.error.toLowerCase();
         if (errorLower.includes('401') ||
+            errorLower.includes('403') ||
+            errorLower.includes('forbidden') ||
             errorLower.includes('sessão') ||
             errorLower.includes('session') ||
             errorLower.includes('expirada') ||
             errorLower.includes('expired') ||
             errorLower.includes('inválida') ||
-            errorLower.includes('invalid')) {
+            errorLower.includes('invalid') ||
+            errorLower.includes('device') ||
+            errorLower.includes('device_id') ||
+            errorLower.includes('dispositivo')) {
           console.warn('[Logout] ✅ Session invalid detected - forcing local logout without API call');
           // NÃO chama logoutMobile() porque a sessão já está morta no backend
           onConfirm();
@@ -112,12 +117,17 @@ export function LogoutConfirmDialog({ isOpen, onClose, onConfirm }: LogoutConfir
       const errorMsg = error?.message || error?.toString() || '';
       const errorLower = errorMsg.toLowerCase();
       if (errorLower.includes('401') ||
+          errorLower.includes('403') ||
+          errorLower.includes('forbidden') ||
           errorLower.includes('sessão') ||
           errorLower.includes('session') ||
           errorLower.includes('expirada') ||
           errorLower.includes('expired') ||
           errorLower.includes('inválida') ||
-          errorLower.includes('invalid')) {
+          errorLower.includes('invalid') ||
+          errorLower.includes('device') ||
+          errorLower.includes('device_id') ||
+          errorLower.includes('dispositivo')) {
         console.warn('[Logout] Session invalid exception, forcing local logout without API call');
         // NÃO chama logoutMobile() porque a sessão já está morta no backend
         onConfirm();

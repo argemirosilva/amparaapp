@@ -5,8 +5,8 @@ import { ArrowLeft, Lock, Calendar, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-// Logo removed from settings pages
 import { useToast } from '@/hooks/use-toast';
+
 import { changePassword, updateSchedules, WeekSchedule, validatePassword } from '@/lib/api_settings';
 import { clearSessionToken } from '@/lib/api';
 import { PeriodosSemana } from '@/lib/types';
@@ -38,21 +38,36 @@ export default function SettingsPage() {
   const [modifiedSchedule, setModifiedSchedule] = useState<WeekSchedule>({});
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
-  // Load initial schedule from ConfigService
+  // Load initial schedule from ConfigService (force sync from server)
   useEffect(() => {
     if (isAuthenticated) {
-      try {
-        const config = getCurrentConfig();
-        if (config?.periodos_semana) {
-          console.log('[Settings] Loading existing schedule from ConfigService:', JSON.stringify(config.periodos_semana, null, 2));
-          setInitialSchedule(config.periodos_semana as WeekSchedule);
-        } else {
-          console.log('[Settings] No periodos_semana found in ConfigService');
-          console.log('[Settings] Full config:', JSON.stringify(config, null, 2));
+      const loadSchedule = async () => {
+        try {
+          // Forçar sincronização com o servidor ao entrar nas configurações
+          console.log('[Settings] Force syncing config from server...');
+          const synced = await forceSyncConfig();
+
+          if (synced) {
+            console.log('[Settings] Config synced successfully from server');
+          } else {
+            console.warn('[Settings] Force sync failed, using cached config');
+          }
+
+          // Carregar config atualizada (do servidor ou cache)
+          const config = getCurrentConfig();
+          if (config?.periodos_semana) {
+            console.log('[Settings] Loading schedule:', JSON.stringify(config.periodos_semana, null, 2));
+            setInitialSchedule(config.periodos_semana as WeekSchedule);
+          } else {
+            console.log('[Settings] No periodos_semana found in config');
+            console.log('[Settings] Full config:', JSON.stringify(config, null, 2));
+          }
+        } catch (error) {
+          console.error('[Settings] Failed to load schedule:', error);
         }
-      } catch (error) {
-        console.error('[Settings] Failed to load schedule:', error);
-      }
+      };
+
+      loadSchedule();
     }
   }, [isAuthenticated]);
 
@@ -284,7 +299,7 @@ export default function SettingsPage() {
         // Partial success or full error
         const errorMessage = result.data?.message || 'Erro ao atualizar agenda';
         const errors = result.data?.errors || [];
-        
+
         // Show main message
         toast({
           title: errors.length > 0 ? 'Atenção' : 'Erro',
@@ -337,7 +352,7 @@ export default function SettingsPage() {
           onCancel={handlePasswordCancel}
           isValidating={isValidatingPassword}
         />
-        <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="min-h-screen bg-app-deep flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       </>
@@ -345,32 +360,30 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* iOS SafeArea spacer */}
-      <div className="h-[env(safe-area-inset-top)] bg-background shrink-0" />
+    <div className="min-h-screen bg-app-deep flex flex-col safe-area-inset-top safe-area-inset-bottom">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-4 bg-background" style={{ paddingTop: '3rem' }}>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate('/')}
-            className="h-9 w-9"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="sticky top-0 z-10 bg-background/70 backdrop-blur-md border-b border-border/70 px-4 pb-4"
+        style={{
+          paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)',
+          minHeight: 'calc(env(safe-area-inset-top) + 6.5rem)',
+        }}
+      >
+        <div className="flex items-end h-full">
           <h1 className="text-lg font-semibold">Configurações</h1>
         </div>
-      </header>
+      </motion.div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-4 py-6 space-y-6">
-        
+
         {/* Change Password Section */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-card border border-border rounded-lg p-6"
+          className="card-glass-dark rounded-2xl p-6"
         >
           <div className="flex items-center gap-2 mb-4">
             <Lock className="h-5 w-5 text-primary" />
@@ -389,7 +402,7 @@ export default function SettingsPage() {
                   onChange={(e) => setSenhaAtual(e.target.value)}
                   placeholder="Digite sua senha atual"
                   disabled={isChangingPassword}
-                  className="pr-10"
+                  className="pr-10 bg-background/70 border-border/80 focus-visible:ring-black"
                 />
                 <button
                   type="button"
@@ -412,7 +425,7 @@ export default function SettingsPage() {
                   onChange={(e) => setNovaSenha(e.target.value)}
                   placeholder="Digite a nova senha (mín. 6 caracteres)"
                   disabled={isChangingPassword}
-                  className="pr-10"
+                  className="pr-10 bg-background/70 border-border/80 focus-visible:ring-black"
                 />
                 <button
                   type="button"
@@ -435,7 +448,7 @@ export default function SettingsPage() {
                   onChange={(e) => setConfirmarSenha(e.target.value)}
                   placeholder="Digite a nova senha novamente"
                   disabled={isChangingPassword}
-                  className="pr-10"
+                  className="pr-10 bg-background/70 border-border/80 focus-visible:ring-black"
                 />
                 <button
                   type="button"
@@ -451,7 +464,7 @@ export default function SettingsPage() {
             <Button
               onClick={handleChangePassword}
               disabled={isChangingPassword}
-              className="w-full"
+              className="w-full rounded-xl bg-black hover:bg-black/90 text-white"
             >
               {isChangingPassword ? (
                 <>
@@ -470,7 +483,7 @@ export default function SettingsPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-card border border-border rounded-lg p-6"
+          className="card-glass-dark rounded-2xl p-6"
         >
           <div className="flex items-center gap-2 mb-4">
             <Calendar className="h-5 w-5 text-primary" />
@@ -491,7 +504,7 @@ export default function SettingsPage() {
             <Button
               onClick={handleSaveSchedule}
               disabled={isSavingSchedule}
-              className="w-full mt-4"
+              className="w-full mt-4 rounded-xl bg-black hover:bg-black/90 text-white"
             >
               {isSavingSchedule ? (
                 <>
@@ -506,6 +519,21 @@ export default function SettingsPage() {
         </motion.div>
 
 
+      </div>
+
+      {/* Bottom back button */}
+      <div
+        className="border-t border-border/70 bg-background/70 backdrop-blur-md px-4 pt-3"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
+      >
+        <Button
+          variant="outline"
+          className="w-full h-11"
+          onClick={() => navigate('/')}
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Voltar
+        </Button>
       </div>
     </div>
   );
