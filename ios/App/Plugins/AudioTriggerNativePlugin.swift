@@ -2341,16 +2341,17 @@ public class AudioTriggerNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let audioSession = AVAudioSession.sharedInstance()
         // .mixWithOthers: permite que outros apps (música, vídeos) continuem tocando
         // .allowBluetooth: permite uso de fones Bluetooth
-        // Removido .defaultToSpeaker: forçava roteamento para alto-falante e podia interromper outros apps
-        let options: AVAudioSession.CategoryOptions = [.allowBluetooth, .mixWithOthers]
+        // .defaultToSpeaker: roteia áudio para o viva-voz (sem isso vai para o auricular)
+        let options: AVAudioSession.CategoryOptions = [.allowBluetooth, .defaultToSpeaker, .mixWithOthers]
         try audioSession.setCategory(.playAndRecord, mode: .default, options: options)
-        try audioSession.setActive(true)
+        try audioSession.setActive(true, options: [])
     }
 
     private func deactivateAudioSession(context: String) {
         internalAudioSessionDeactivationUntil = Date().addingTimeInterval(internalInterruptionGraceWindow)
         do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            // Sem .notifyOthersOnDeactivation para não interromper outros apps (música, vídeos)
+            try AVAudioSession.sharedInstance().setActive(false, options: [])
         } catch {
             print("[AudioTriggerNative-iOS] ⚠️ Could not deactivate audio session (\(context)): \(error.localizedDescription)")
         }
