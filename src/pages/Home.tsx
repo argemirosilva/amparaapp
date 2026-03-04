@@ -541,7 +541,7 @@ export function HomePage({ onLogout }: HomePageProps) {
               <motion.div
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={`text-4xl font-mono font-bold ${panic.isPanicActive ? 'text-destructive' : 'text-primary'}`}
+                className={`text-4xl font-mono font-bold ${panic.isPanicActive ? 'text-destructive' : 'text-destructive'}`}
               >
                 {formatDuration(
                   panic.isPanicActive
@@ -581,46 +581,36 @@ export function HomePage({ onLogout }: HomePageProps) {
           </motion.div>
 
 
-          {/* Recording Button - Fixed Size & Position */}
+          {/* Botão de gravação manual - centralizado */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="w-full mt-4"
+            className="flex flex-col items-center mt-4"
           >
-            <div className="card-glass-dark rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-background/55 flex items-center justify-center border border-border/60">
-                  <Mic className="w-5 h-5 text-foreground" />
-                </div>
-                <div>
-                  <p className="text-xl font-semibold text-foreground">Gravação</p>
-                  <p className="text-sm text-muted-foreground">
-                    {isRecordingEffective ? 'Gravando agora' : 'Pronta para gravar'}
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={handleRecordToggle}
-                disabled={panic.isActivating || panic.isSendingToServer || isRecordLoading}
-                aria-label={isRecordingEffective ? 'Parar gravação' : 'Iniciar gravação manual'}
-                className={`rounded-full w-14 h-14 p-0 border-0 ${isRecordingEffective
-                  ? 'bg-black hover:bg-black/90 text-white'
-                  : 'btn-primary-neon hover:opacity-90 text-white'
-                  }`}
-              >
-                {isRecordLoading ? (
-                  '...'
-                ) : isRecordingEffective ? (
-                  <Square className="w-5 h-5 fill-current" />
-                ) : (
-                  <span className="relative flex items-center justify-center w-6 h-6">
-                    <span className="absolute w-6 h-6 rounded-full border-2 border-white/90" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-white" />
-                  </span>
-                )}
-              </Button>
-            </div>
+            <Button
+              onClick={handleRecordToggle}
+              disabled={panic.isActivating || panic.isSendingToServer || isRecordLoading}
+              aria-label={isRecordingEffective ? 'Parar gravação' : 'Iniciar gravação manual'}
+              className={`rounded-full w-16 h-16 p-0 border-0 ${isRecordingEffective
+                ? 'bg-black hover:bg-black/90 text-white'
+                : 'btn-primary-neon hover:opacity-90 text-white'
+                }`}
+            >
+              {isRecordLoading ? (
+                '...'
+              ) : isRecordingEffective ? (
+                <Square className="w-6 h-6 fill-current" />
+              ) : (
+                <span className="relative flex items-center justify-center w-7 h-7">
+                  <span className="absolute w-7 h-7 rounded-full border-2 border-white/90" />
+                  <span className="w-3 h-3 rounded-full bg-white" />
+                </span>
+              )}
+            </Button>
+            <span className={`mt-2 text-sm font-medium ${isRecordingEffective ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {isRecordingEffective ? 'Parar' : 'Gravar'}
+            </span>
           </motion.div>
         </div>
 

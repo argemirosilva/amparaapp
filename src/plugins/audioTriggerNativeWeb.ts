@@ -13,9 +13,19 @@ export class AudioTriggerNativeWeb extends WebPlugin implements AudioTriggerNati
   private segmentIndex: number = 0;
   private uploadInterval: ReturnType<typeof setInterval> | null = null;
 
-  async start(): Promise<{ success: boolean }> {
+  async start(): Promise<{ success: boolean; alreadyRunning?: boolean }> {
     console.log('[AudioTriggerNativeWeb] start() - Web fallback, no-op');
     return { success: false };
+  }
+
+  async getDeviceId(): Promise<{ deviceId: string }> {
+    console.log('[AudioTriggerNativeWeb] getDeviceId() - Web fallback');
+    return { deviceId: 'web-device' };
+  }
+
+  async setDeviceId(options: { deviceId: string }): Promise<{ success: boolean; deviceId: string }> {
+    console.log('[AudioTriggerNativeWeb] setDeviceId() - Web fallback', options);
+    return { success: false, deviceId: options.deviceId };
   }
 
   async stop(): Promise<{ success: boolean }> {
@@ -33,10 +43,10 @@ export class AudioTriggerNativeWeb extends WebPlugin implements AudioTriggerNati
     return { success: false };
   }
 
-  async startRecording(options?: { 
-    sessionToken?: string; 
-    emailUsuario?: string; 
-    origemGravacao?: string 
+  async startRecording(options?: {
+    sessionToken?: string;
+    emailUsuario?: string;
+    origemGravacao?: string
   }): Promise<{ success: boolean }> {
     try {
       console.log('[AudioTriggerNativeWeb] 🎤 startRecording called', options);
@@ -54,12 +64,12 @@ export class AudioTriggerNativeWeb extends WebPlugin implements AudioTriggerNati
 
       // Request microphone permission
       console.log('[AudioTriggerNativeWeb] Requesting microphone access...');
-      this.audioStream = await navigator.mediaDevices.getUserMedia({ 
+      this.audioStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-        } 
+        }
       });
 
       console.log('[AudioTriggerNativeWeb] ✅ Microphone access granted');
@@ -164,6 +174,31 @@ export class AudioTriggerNativeWeb extends WebPlugin implements AudioTriggerNati
 
   async updateConfig(options: { config: any }): Promise<{ success: boolean }> {
     console.log('[AudioTriggerNativeWeb] updateConfig() - Web fallback, no-op', options);
+    return { success: false };
+  }
+
+  async reportStatus(options: { status: string; isMonitoring: boolean; motivo: string }): Promise<{ success: boolean }> {
+    console.log('[AudioTriggerNativeWeb] reportStatus() - Web fallback, no-op', options);
+    return { success: false };
+  }
+
+  async stopManualRecording(): Promise<{ success: boolean; wasRecording?: boolean }> {
+    console.log('[AudioTriggerNativeWeb] stopManualRecording() - Web fallback');
+    return this.stopRecording().then(r => ({ ...r, wasRecording: false }));
+  }
+
+  async getPendingRecordings(): Promise<{ recordings: any[] }> {
+    console.log('[AudioTriggerNativeWeb] getPendingRecordings() - Web fallback');
+    return { recordings: [] };
+  }
+
+  async uploadRecording(options: { id: string }): Promise<{ success: boolean }> {
+    console.log('[AudioTriggerNativeWeb] uploadRecording() - Web fallback', options);
+    return { success: false };
+  }
+
+  async deleteRecording(options: { id: string }): Promise<{ success: boolean }> {
+    console.log('[AudioTriggerNativeWeb] deleteRecording() - Web fallback', options);
     return { success: false };
   }
 

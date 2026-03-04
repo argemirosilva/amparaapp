@@ -24,7 +24,7 @@ import {
 } from './types';
 
 // API Base URL - single endpoint with action field
-const API_URL = import.meta.env.VITE_API_BASE_URL || 
+const API_URL = import.meta.env.VITE_API_BASE_URL ||
   'https://uogenwcycqykfsuongrl.supabase.co/functions/v1/mobile-api';
 
 // ============================================
@@ -105,10 +105,10 @@ async function mobileApi<T>(
   if (requiresAuth) {
     const token = getSessionToken();
     const email = getUserEmail();
-    
+
     const tokenPreview = token ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}` : 'null';
     console.log('[API] Token check for', action, '- Has token:', !!token, '| Token preview:', tokenPreview, '| In background:', document.visibilityState === 'hidden');
-    
+
     if (!token) {
       console.error('[API] No token available for', action);
       return { data: null, error: 'Sessão expirada. Faça login novamente.' };
@@ -147,17 +147,17 @@ async function mobileApi<T>(
     // Handle 401 Unauthorized - try to refresh token
     if (response.status === 401 && requiresAuth) {
       console.log('[API] Received 401, attempting token refresh...');
-      
+
       const refreshed = await refreshAccessToken();
-      
+
       if (refreshed) {
         console.log('[API] Token refreshed, retrying request...');
-        
+
         // Retry the request with the new token
         const newToken = getSessionToken();
         if (newToken) {
           body.session_token = newToken;
-          
+
           const retryResponse = await fetch(API_URL, {
             method: 'POST',
             headers: {
@@ -165,7 +165,7 @@ async function mobileApi<T>(
             },
             body: JSON.stringify(body),
           });
-          
+
           if (!retryResponse.ok) {
             const errorData = await retryResponse.json().catch(() => ({}));
             const errorMsg = String(errorData?.error || errorData?.message || '').toLowerCase();
@@ -179,27 +179,27 @@ async function mobileApi<T>(
                 detail: { reason: 'device_mismatch' }
               }));
             }
-            return { 
-              data: null, 
-              error: errorData.error || errorData.message || `Erro ${retryResponse.status}` 
+            return {
+              data: null,
+              error: errorData.error || errorData.message || `Erro ${retryResponse.status}`
             };
           }
-          
+
           const retryData = await retryResponse.json();
           return { data: retryData, error: null };
         }
       }
-      
+
       // If refresh failed, return session expired error
       console.error('[API] Token refresh failed, session expired');
-      
+
       // Dispatch global event to force logout
       window.dispatchEvent(new Event('session_expired'));
-      
-      return { 
-        data: null, 
+
+      return {
+        data: null,
         error: 'Sessão expirada. Faça login novamente.',
-        session_expired: true 
+        session_expired: true
       } as any;
     }
 
@@ -216,9 +216,9 @@ async function mobileApi<T>(
           detail: { reason: 'device_mismatch' }
         }));
       }
-      return { 
-        data: null, 
-        error: errorData.error || errorData.message || `Erro ${response.status}` 
+      return {
+        data: null,
+        error: errorData.error || errorData.message || `Erro ${response.status}`
       };
     }
 
@@ -270,7 +270,7 @@ export async function loginCustomizado(
     console.log('[API] Extracted accessToken:', !!accessToken);
     console.log('[API] Extracted refreshToken:', !!refreshToken);
     console.log('[API] Extracted userData:', !!userData);
-    
+
     // Store session token using session service
     if (accessToken) {
       await setSessionToken(accessToken);
@@ -278,7 +278,7 @@ export async function loginCustomizado(
     } else {
       console.error('[API] No access token found in response!');
     }
-    
+
     // Store refresh token if provided by backend
     if (refreshToken) {
       console.log('[API] 💾 Saving refresh token:', refreshToken.substring(0, 20) + '...');
@@ -295,12 +295,12 @@ export async function loginCustomizado(
     } else {
       console.error('[API] ❌ No refresh token found in response!');
     }
-    
+
     // Store user data
     if (userData) {
       await setUserData(JSON.stringify(userData));
     }
-    
+
     // Store user config in localStorage (not critical for auth)
     localStorage.setItem(
       STORAGE_KEYS.USER_CONFIG,
@@ -443,7 +443,7 @@ export async function receberAudioMobile(
   // Detect file extension from MIME type
   const mimeType = audioBlob.type || 'audio/wav';
   let extension = 'wav';
-  
+
   if (mimeType.includes('mp4')) {
     extension = 'm4a'; // iOS MP4 audio
   } else if (mimeType.includes('ogg')) {
@@ -453,7 +453,7 @@ export async function receberAudioMobile(
   } else if (mimeType.includes('mpeg') || mimeType.includes('mp3')) {
     extension = 'mp3';
   }
-  
+
   formData.append('audio', audioBlob, `segment_${segmentIndex}.${extension}`);
   console.log(`[receberAudioMobile] Uploading segment ${segmentIndex} as ${extension} (${mimeType})`);
 
@@ -465,9 +465,9 @@ export async function receberAudioMobile(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      return { 
-        data: null, 
-        error: errorData.error || 'Falha no envio do áudio' 
+      return {
+        data: null,
+        error: errorData.error || 'Falha no envio do áudio'
       };
     }
 
@@ -498,16 +498,16 @@ export async function reportarStatusGravacao(
   if (origem) {
     payload.origem_gravacao = origem;
   }
-  
+
   if (alertaId) {
     payload.device_id = await getDeviceId();
     payload.alerta_id = alertaId;
   }
-  
+
   if (protocolo) {
     payload.protocolo = protocolo;
   }
-  
+
   if (segmentoIdx !== undefined) {
     payload.segmento_idx = segmentoIdx;
   }
@@ -525,17 +525,17 @@ export async function reportarStatusGravacao(
 export async function syncConfigMobile(): Promise<ApiResponse<ConfigSyncResponse>> {
   console.log('[API][SYNC_CONFIG][START] ######## SYNC_CONFIG_MOBILE CHAMADO ########');
   console.log('[API] Calling syncConfigMobile...');
-  
+
   const result = await mobileApi<any>('syncConfigMobile');
   console.log('[API][SYNC_CONFIG][RAW] ######## RESPONSE RECEBIDA ########');
-  
+
   console.log('[API] syncConfigMobile raw response:', JSON.stringify(result, null, 2));
-  
+
   if (result.error || !result.data) {
     console.error('[API] syncConfigMobile error:', result.error);
     return { data: null, error: result.error || 'Failed to sync config' };
   }
-  
+
   // Accept both response shapes:
   // 1) flat fields at root (newer backend)
   // 2) fields nested under `configuracoes` (legacy/variant backend)
@@ -565,18 +565,18 @@ export async function syncConfigMobile(): Promise<ApiResponse<ConfigSyncResponse
     periodos_semana: pick('periodos_semana', monitoramento?.periodos_semana ?? null),
     ultima_atualizacao: new Date().toISOString()
   };
-  
+
   // Cache the transformed config
   localStorage.setItem(
     STORAGE_KEYS.USER_CONFIG,
     JSON.stringify(configResponse.configuracoes)
   );
-  
+
   console.log('[API] syncConfigMobile processed successfully', {
     dentro_horario: configResponse.dentro_horario,
-    periodos_hoje_count: configResponse.periodos_hoje.length
+    periodos_hoje_count: configResponse.periodos_hoje?.length ?? 0
   });
-  
+
   return { data: configResponse, error: null };
 }
 
@@ -637,10 +637,15 @@ export async function reportMonitoringStatus(
   try {
     const DeviceInfoExtended = (await import('@/plugins/deviceInfo')).default;
     const deviceInfo = await DeviceInfoExtended.getExtendedInfo();
-    const userData = getUserData();
+    const userDataStr = getUserData();
+    let userDataParsed: any = null;
+    try {
+      if (userDataStr) userDataParsed = JSON.parse(userDataStr);
+    } catch { /* ignorar */ }
+
     const token = getSessionToken();
 
-    if (!userData?.email) {
+    if (!userDataParsed?.email) {
       console.error('[API] Cannot report monitoring status: missing email');
       return { data: null, error: 'Missing user email' };
     }
@@ -652,8 +657,8 @@ export async function reportMonitoringStatus(
 
     const payload = {
       action: 'reportarStatusMonitoramento',
-      email_usuario: userData.email,
-      device_id: deviceInfo.deviceId,
+      email_usuario: userDataParsed.email,
+      device_id: getDeviceId(),
       session_token: token,
       status_monitoramento: status,
       is_monitoring: isMonitoring,

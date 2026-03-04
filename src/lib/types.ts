@@ -10,21 +10,31 @@ export interface DeviceInfo {
 
 // Login Response
 export interface LoginResponse {
-  session: {
+  session?: {
     token: string;
     expires_at: string;
+    refresh_token?: string;
   };
-  usuario: {
+  // Formatos alternativos do servidor
+  access_token?: string;
+  refresh_token?: string;
+  user?: {
     id: string;
     nome: string;
     email: string;
   };
-  configuracoes: UserConfig;
+  usuario?: {
+    id: string;
+    nome: string;
+    email: string;
+  };
+  configuracoes?: UserConfig;
   coacao_detectada?: boolean;
 }
 
 // User Configuration
 export interface UserConfig {
+  version?: number;
   gatilhos: {
     voz: boolean;
     manual: boolean;
@@ -156,12 +166,12 @@ export type PanicActivationType = 'manual' | 'voz' | 'oculto' | 'widget';
 export type PanicCancelType = 'manual' | 'timeout' | 'coacao';
 
 // Recording origin types (for backend routing)
-export type OrigemGravacao = 
-  | 'comando_voz' 
-  | 'botao_panico' 
-  | 'botao_manual' 
-  | 'automatico' 
-  | 'agendado' 
+export type OrigemGravacao =
+  | 'comando_voz'
+  | 'botao_panico'
+  | 'botao_manual'
+  | 'automatico'
+  | 'agendado'
   | 'upload_arquivo';
 
 // Recording status types

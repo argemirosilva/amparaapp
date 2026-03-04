@@ -34,18 +34,18 @@ export interface AudioTriggerControllerReturn {
   isCapturing: boolean;
   hasPermission: boolean | null;
   error: string | null;
-  
+
   // Streams
   events: AudioTriggerEvent[];
   metrics: AudioTriggerMetrics | null;
-  
+
   // Derived state
   state: TriggerState;
   config: AudioTriggerConfig;
   isRecording: boolean;
   discussionOn: boolean;
   isCalibrated: boolean;
-  
+
   // Actions
   start: () => Promise<void>;
   stop: () => void;
@@ -68,7 +68,7 @@ export function useAudioTriggerController(
       saveServerConfig(serverConfig); // Cache locally
       return { ...converted, ...initialConfig };
     }
-    
+
     // 2. Fallback to cached config
     const stored = getFullConfig();
     return { ...stored, ...initialConfig };
@@ -102,7 +102,7 @@ export function useAudioTriggerController(
   const currentGenderRef = useRef<GenderClass>('UNKNOWN');
   const discussionOnRef = useRef<boolean>(false);
   const configRef = useRef(config);
-  
+
   // Adaptive noise floor
   const adaptiveNoiseFloorRef = useRef<AdaptiveNoiseFloor | null>(null);
   const [isCalibrated, setIsCalibrated] = useState(false);
@@ -144,7 +144,7 @@ export function useAudioTriggerController(
     const mode = cfg.processingMode || 'FULL';
 
     frameCountRef.current++;
-    
+
     // Log every 50 frames (~1 second at 50fps) for better diagnostics
     if (frameCountRef.current % 50 === 0) {
       const maxSample = Math.max(...Array.from(samples).map(Math.abs));
@@ -205,7 +205,7 @@ export function useAudioTriggerController(
 
     // In LIGHT mode, aggregate every 5000ms instead of 1000ms (80% less processing)
     const aggregationInterval = mode === 'LIGHT' ? 5000 : cfg.aggregationMs;
-    
+
     // Check if it's time for aggregation
     if (now - lastAggregationTimeRef.current >= aggregationInterval) {
       lastAggregationTimeRef.current = now;
@@ -226,7 +226,7 @@ export function useAudioTriggerController(
 
         // Classify gender
         const newGender = classifyGender(f0Median2s, voicingConfidence, speechOnRef.current, cfg);
-        
+
         // Detect gender change
         if (newGender !== currentGenderRef.current && newGender !== 'UNKNOWN') {
           currentGenderRef.current = newGender;
@@ -292,6 +292,7 @@ export function useAudioTriggerController(
           recordingOn: triggerStateMachine.isRecording(),
           recordingDuration: triggerStateMachine.getRecordingDuration(),
           state: newState,
+          isNoisy: noiseFloorRef.current > -40 || frameResult.dbfs > -25,
         };
 
         setMetrics(newMetrics);
@@ -362,7 +363,7 @@ export function useAudioTriggerController(
 
         analyserRef.current.getFloatTimeDomainData(dataArray);
         processAudioFrame(dataArray, audioContextRef.current.sampleRate);
-        
+
         frameCount++;
         if (frameCount === 1) {
           console.log('[AudioTrigger] First frame processed');
@@ -376,7 +377,7 @@ export function useAudioTriggerController(
 
       // Initialize adaptive noise floor (only if not already initialized)
       if (!adaptiveNoiseFloorRef.current) {
-        const initialNoiseFloor = config.noiseFloorDb || -50;
+        const initialNoiseFloor = -50;
         const learningRate = 0.1; // Same as native
         adaptiveNoiseFloorRef.current = new AdaptiveNoiseFloor(initialNoiseFloor, learningRate);
         adaptiveNoiseFloorRef.current.setCalibrationCallback((calibrated) => {
@@ -389,7 +390,7 @@ export function useAudioTriggerController(
         // Update isCalibrated state from existing instance
         setIsCalibrated(adaptiveNoiseFloorRef.current.isCalibrated());
       }
-      
+
       console.log('[AudioTrigger] Starting process loop');
       animationFrameRef.current = requestAnimationFrame(processLoop);
       setIsCapturing(true);
@@ -408,16 +409,16 @@ export function useAudioTriggerController(
       const error = err as Error & { name?: string };
       console.error('[AudioTrigger] Error starting capture:', err);
       setHasPermission(false);
-      
+
       // Background service is managed independently, no need to stop here
-      
+
       let errorMessage = 'Erro ao acessar microfone';
       if (error.name === 'NotAllowedError') {
         errorMessage = 'Permissão negada para acessar o microfone';
       } else if (error.name === 'NotFoundError') {
         errorMessage = 'Nenhum microfone encontrado';
       }
-      
+
       setError(errorMessage);
       addEvent({
         type: 'error',
@@ -465,7 +466,7 @@ export function useAudioTriggerController(
   // Reset all state
   const reset = useCallback(() => {
     stop();
-    
+
     // Reset processing state
     noiseFloorRef.current = -50;
     frameBufferRef.current.clear();

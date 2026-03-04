@@ -31,7 +31,7 @@ export function useRecording() {
   const origemGravacaoRef = useRef<OrigemGravacao>('botao_manual');
   const currentSessionIdRef = useRef<string | null>(null);
   const startedAtRef = useRef<number | null>(null);
-  
+
   // iOS MediaRecorder refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -41,14 +41,16 @@ export function useRecording() {
 
   // Listen to native recording events
   useEffect(() => {
-    const listener = AudioTriggerNative.addListener('audioTriggerEvent', (event) => {
+    let listenerHandle: { remove: () => void } | null = null;
+
+    AudioTriggerNative.addListener('audioTriggerEvent', (event) => {
       console.log('[useRecording] Native event:', event);
 
       switch (event.event) {
         case 'nativeRecordingStarted':
           currentSessionIdRef.current = event.sessionId || null;
           // Capture startedAt timestamp from native
-          startedAtRef.current = event.startedAt || Date.now();
+          startedAtRef.current = (event.startedAt as number) || Date.now();
           console.log('[useRecording] Recording started at:', new Date(startedAtRef.current).toISOString());
           // Update origem if provided by native (automatic detection)
           if (event.origemGravacao) {
@@ -68,10 +70,11 @@ export function useRecording() {
 
         case 'nativeRecordingProgress':
           // Update segments sent count
-          if (event.segmentIndex !== undefined) {
+          if (event.segmentIndex !== undefined && event.segmentIndex !== null) {
+            const segIdx = event.segmentIndex as number;
             setState((prev) => ({
               ...prev,
-              segmentsSent: event.segmentIndex + 1,
+              segmentsSent: segIdx + 1,
             }));
           }
           break;
@@ -81,8 +84,8 @@ export function useRecording() {
           if (event.success !== undefined) {
             setState((prev) => ({
               ...prev,
-              segmentsSent: event.success,
-              segmentsPending: event.pending || 0,
+              segmentsSent: (event.success as number) ?? 0,
+              segmentsPending: (event.pending as number) ?? 0,
             }));
           }
           break;
@@ -104,16 +107,20 @@ export function useRecording() {
             currentSessionIdRef.current = event.sessionId || null;
             setState((prev) => ({
               ...prev,
-              isRecording: event.isRecording,
+              isRecording: event.isRecording as boolean,
               isStopping: false,
             }));
           }
           break;
       }
+    }).then(handle => {
+      listenerHandle = handle;
     });
 
     return () => {
-      listener.remove();
+      if (listenerHandle) {
+        listenerHandle.remove();
+      }
     };
   }, []);
 
@@ -162,7 +169,7 @@ export function useRecording() {
       // iOS: Use native plugin (works in background with screen locked)
       if (platform === 'ios') {
         console.log('[useRecording] iOS detected, using native plugin');
-        
+
         await AudioTriggerNative.startRecording({
           sessionToken,
           emailUsuario,
@@ -218,9 +225,8 @@ export function useRecording() {
       // Report final status
       if (currentSessionIdRef.current) {
         await reportarStatusGravacao(
-          currentSessionIdRef.current,
-          'finalizada',
-          state.segmentsSent
+          'finalizada' as import('@/lib/types').RecordingStatusType,
+          origemGravacaoRef.current || undefined,
         );
       }
 
@@ -267,7 +273,7 @@ export function useRecording() {
 // Helper function to get supported MIME type
 function getSupportedMimeType(): string {
   const platform = Capacitor.getPlatform();
-  
+
   // iOS: Priorizar MP4 (AAC codec)
   if (platform === 'ios') {
     const iosTypes = [
@@ -276,7 +282,7 @@ function getSupportedMimeType(): string {
       'audio/webm;codecs=opus',
       'audio/webm',
     ];
-    
+
     for (const type of iosTypes) {
       if (MediaRecorder.isTypeSupported(type)) {
         console.log('[useRecording] iOS: Selected MIME type:', type);
@@ -284,7 +290,7 @@ function getSupportedMimeType(): string {
       }
     }
   }
-  
+
   // Android: Priorizar OGG (Opus codec) - mantém comportamento atual
   const types = [
     'audio/webm;codecs=opus',

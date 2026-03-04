@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Dumbbell, Heart, Gamepad2, Sparkles, Footprints, Flower2, Shirt, Puzzle, PlayingCards, Candy } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Dumbbell, Heart, Gamepad2, Sparkles, Footprints, Flower2, Shirt, Puzzle, Spade, Candy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useIconChanger, AVAILABLE_ICONS } from '../composables/useIconChanger';
 import { useToast } from '@/hooks/use-toast';
@@ -28,7 +28,7 @@ const IconSelector: React.FC = () => {
   useEffect(() => {
     loadCurrentIcon();
   }, []);
-  
+
   // Recarregar o ícone atual sempre que a tela ficar visível
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -36,7 +36,7 @@ const IconSelector: React.FC = () => {
         loadCurrentIcon();
       }
     };
-    
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
@@ -122,9 +122,9 @@ const IconSelector: React.FC = () => {
       {/* Header */}
       <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-md">
         <div className="container flex h-16 items-center gap-4 px-4">
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => navigate('/')}
             className="rounded-full"
           >
@@ -146,7 +146,7 @@ const IconSelector: React.FC = () => {
           {Object.entries(groupedIcons).map(([category, icons]) => {
             const catInfo = getCategoryInfo(category);
             const IconComp = catInfo.icon;
-            
+
             return (
               <section key={category} className="space-y-4">
                 <div className="flex items-center gap-2 border-b pb-2">
@@ -163,11 +163,10 @@ const IconSelector: React.FC = () => {
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => handleIconSelect(icon.id)}
-                      className={`relative cursor-pointer rounded-2xl border-2 p-3 transition-all ${
-                        currentIconId === icon.id 
-                          ? 'border-primary bg-primary/5 ring-2 ring-primary/20' 
+                      className={`relative cursor-pointer rounded-2xl border-2 p-3 transition-all ${currentIconId === icon.id
+                          ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                           : 'border-border bg-card hover:border-primary/50'
-                      }`}
+                        }`}
                     >
                       <div className="aspect-square w-full overflow-hidden rounded-xl bg-muted mb-3 relative">
                         <img
@@ -181,7 +180,7 @@ const IconSelector: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      
+
                       <div className="text-center">
                         <p className="font-bold text-sm leading-tight mb-1">{icon.name}</p>
                         <p className="text-[10px] text-muted-foreground uppercase tracking-tighter">

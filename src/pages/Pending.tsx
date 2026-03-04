@@ -19,8 +19,20 @@ import {
 } from '@/lib/appState';
 import { useAppState } from '@/hooks/useAppState';
 import { useToast } from '@/hooks/use-toast';
-import { AudioTriggerNative, PendingNativeRecording } from '@/plugins/audioTriggerNative';
+import { AudioTriggerNative } from '@/plugins/audioTriggerNative';
+import type { AudioTriggerEvent as NativeEvent } from '@/plugins/audioTriggerNative';
 import { Capacitor } from '@capacitor/core';
+
+// Tipo para gravações nativas pendentes
+export interface PendingNativeRecording {
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  createdAt: number;
+  segmentIndex: number;
+  sessionId: string;
+  origemGravacao?: string;
+}
 
 type UnifiedUpload =
   | (PendingUpload & { source: 'local' })
@@ -40,8 +52,8 @@ export function PendingPage() {
     if (Capacitor.isNativePlatform()) {
       try {
         const result = await AudioTriggerNative.getPendingRecordings();
-        if (result.success) {
-          nativeItems = result.recordings.map(r => ({
+        if (result.recordings && result.recordings.length > 0) {
+          nativeItems = result.recordings.map((r: any) => ({
             ...r,
             id: r.filePath, // Use filePath as unique ID for native items
             source: 'native' as const,
@@ -89,10 +101,7 @@ export function PendingPage() {
 
       try {
         const result = await AudioTriggerNative.uploadRecording({
-          filePath: upload.filePath,
-          segmentIndex: upload.segmentIndex,
-          sessionId: upload.sessionId,
-          origemGravacao: 'rec_background_offline'
+          id: upload.id,
         });
 
         if (result.success) {
@@ -120,7 +129,7 @@ export function PendingPage() {
       removePendingUpload(upload.id);
     } else {
       try {
-        await AudioTriggerNative.deleteRecording({ filePath: upload.filePath });
+        await AudioTriggerNative.deleteRecording({ id: upload.id });
       } catch (error) {
         console.error('Failed to delete native file:', error);
       }
@@ -246,8 +255,8 @@ export function PendingPage() {
                       {getStatusIcon(upload.status)}
                       <p className="font-medium truncate">{upload.fileName}</p>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase ${upload.source === 'native'
-                          ? 'bg-primary/10 text-primary'
-                          : 'bg-muted text-muted-foreground'
+                        ? 'bg-primary/10 text-primary'
+                        : 'bg-muted text-muted-foreground'
                         }`}>
                         {upload.source === 'native' ? 'Automático' : 'Manual'}
                       </span>

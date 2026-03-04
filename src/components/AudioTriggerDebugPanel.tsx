@@ -20,21 +20,21 @@ interface AudioTriggerDebugPanelProps {
   onManualStop?: () => void;
 }
 
-export function AudioTriggerDebugPanel({ 
-  audioTrigger, 
-  onManualStart, 
-  onManualStop 
+export function AudioTriggerDebugPanel({
+  audioTrigger,
+  onManualStart,
+  onManualStop
 }: AudioTriggerDebugPanelProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  
-  const { 
+
+  const {
     isCapturing,
-    hasPermission, 
-    metrics, 
-    state, 
-    isRecording, 
+    hasPermission,
+    metrics,
+    state,
+    isRecording,
     discussionOn,
     config,
     start,
@@ -67,7 +67,7 @@ export function AudioTriggerDebugPanel({
     const speechWeight = (0.70 - config.speechDensityMin) / 0.40; // 0.30-0.70 range
     const loudWeight = (0.50 - config.loudDensityMin) / 0.40; // 0.10-0.50 range
     const dbWeight = (20 - config.loudDeltaDb) / 12; // 8-20 range
-    
+
     const avg = (speechWeight + loudWeight + dbWeight) / 3;
     return Math.round(avg * 9 + 1); // 1-10
   };
@@ -78,7 +78,7 @@ export function AudioTriggerDebugPanel({
     // Level 1 = least sensitive (high thresholds)
     // Level 10 = most sensitive (low thresholds)
     const factor = (level - 1) / 9; // 0 to 1
-    
+
     const newConfig = {
       // Speech density: 0.70 (level 1) to 0.30 (level 10)
       speechDensityMin: 0.70 - (factor * 0.40),
@@ -91,17 +91,17 @@ export function AudioTriggerDebugPanel({
       // Turn taking: 10 (level 1) to 4 (level 10)
       turnTakingMin: 10 - (factor * 6),
     };
-    
+
     updateConfig(newConfig);
   };
 
   // Calculate normalized values for progress bars
-  const normalizedVolume = metrics 
+  const normalizedVolume = metrics
     ? Math.max(0, Math.min(100, ((metrics.dbfsCurrent + 60) / 60) * 100))
     : 0;
-  
-  const normalizedScore = metrics 
-    ? (metrics.score / 7) * 100 
+
+  const normalizedScore = metrics
+    ? (metrics.score / 7) * 100
     : 0;
 
   // State badge colors
@@ -203,27 +203,27 @@ export function AudioTriggerDebugPanel({
                     />
                     <span className="text-xs text-muted-foreground">Alta</span>
                   </div>
-                  </div>
+                </div>
 
-                  {/* Confirmation Time Slider */}
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-xs text-muted-foreground">Tempo de Confirmação</span>
-                    <Badge variant="outline" className="text-xs font-mono">
-                      {config.startHoldSeconds}s
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">4s</span>
-                    <Slider
-                      value={[config.startHoldSeconds]}
-                      min={4}
-                      max={15}
-                      step={1}
-                      onValueChange={(value) => updateConfig({ startHoldSeconds: value[0] })}
-                      className="flex-1"
-                    />
-                    <span className="text-xs text-muted-foreground">15s</span>
-                  </div>
+                {/* Confirmation Time Slider */}
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-xs text-muted-foreground">Tempo de Confirmação</span>
+                  <Badge variant="outline" className="text-xs font-mono">
+                    {config.startHoldSeconds}s
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">4s</span>
+                  <Slider
+                    value={[config.startHoldSeconds]}
+                    min={4}
+                    max={15}
+                    step={1}
+                    onValueChange={(value: number[]) => updateConfig({ startHoldSeconds: value[0] })}
+                    className="flex-1"
+                  />
+                  <span className="text-xs text-muted-foreground">15s</span>
+                </div>
 
                 {/* Advanced Settings (collapsible) */}
                 <AnimatePresence>
@@ -262,7 +262,7 @@ export function AudioTriggerDebugPanel({
 
                 {/* Debug Status Line */}
                 <div className="text-xs text-muted-foreground font-mono bg-background/50 rounded px-2 py-1">
-                  capture: {isCapturing ? '✅' : '❌'} | 
+                  capture: {isCapturing ? '✅' : '❌'} |
                   permission: {hasPermission === null ? '⏳' : hasPermission ? '✅' : '❌'} |
                   starting: {isStarting ? '⏳' : '❌'}
                 </div>
@@ -327,8 +327,8 @@ export function AudioTriggerDebugPanel({
                       {metrics?.score?.toFixed(1) ?? '0'} / 7
                     </span>
                   </div>
-                  <Progress 
-                    value={normalizedScore} 
+                  <Progress
+                    value={normalizedScore}
                     className={`h-3 ${normalizedScore >= 57 ? '[&>div]:bg-destructive' : normalizedScore >= 28 ? '[&>div]:bg-warning' : ''}`}
                   />
                 </div>
@@ -380,8 +380,8 @@ export function AudioTriggerDebugPanel({
                 {/* Control Buttons */}
                 <div className="flex gap-2">
                   {!isCapturing ? (
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant="default"
                       onClick={handleStart}
                       disabled={isStarting}
@@ -400,8 +400,8 @@ export function AudioTriggerDebugPanel({
                       )}
                     </Button>
                   ) : (
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant="destructive"
                       onClick={handleStop}
                       className="flex-1"
@@ -410,8 +410,8 @@ export function AudioTriggerDebugPanel({
                       Parar
                     </Button>
                   )}
-                  <Button 
-                    size="sm" 
+                  <Button
+                    size="sm"
                     variant="outline"
                     onClick={reset}
                   >

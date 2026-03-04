@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { getUserData } from '@/services/sessionService';
-import { 
-  loginCustomizado, 
-  logoutMobile, 
+import {
+  loginCustomizado,
+  logoutMobile,
   syncConfigMobile,
   getSessionToken,
   clearSessionToken,
@@ -38,12 +38,12 @@ export function useAuth() {
         console.error('[useAuth] Error loading user data:', e);
       }
     };
-    
+
     loadUser();
   }, []);
 
   const login = useCallback(async (
-    email: string, 
+    email: string,
     password: string
   ): Promise<{ success: boolean; error?: string; isCoercion?: boolean }> => {
     console.log('🔐🔐🔐 [useAuth] login() called with email:', email);
@@ -59,21 +59,21 @@ export function useAuth() {
     }
 
     // Note: loginCustomizado already stores user info in Preferences and localStorage
-    
+
     setState({
       isAuthenticated: true,
       isLoading: false,
-      user: result.data.usuario,
-      config: result.data.configuracoes,
+      user: result.data.usuario ?? result.data.user ?? null,
+      config: result.data.configuracoes ?? null,
     });
 
     // Sync config in background
     syncConfigMobile().catch(console.error);
 
     // Return coercion status (silent alert triggered)
-    return { 
-      success: true, 
-      isCoercion: result.isCoercion 
+    return {
+      success: true,
+      isCoercion: result.isCoercion
     };
   }, []);
 

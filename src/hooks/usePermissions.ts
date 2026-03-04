@@ -25,6 +25,7 @@ export function usePermissions(): UsePermissionsReturn {
       setPermissions({
         microphone: 'prompt',
         location: 'prompt',
+        notification: 'prompt',
       });
     } finally {
       setIsLoading(false);
@@ -53,7 +54,7 @@ export function usePermissions(): UsePermissionsReturn {
     await checkPermissions();
   }, [checkPermissions]);
 
-  const hasAllRequired = permissions 
+  const hasAllRequired = permissions
     ? permissionsService.hasAllRequired(permissions)
     : false;
 

@@ -36,20 +36,20 @@ export function HomePage({ onLogout }: HomePageProps) {
   const { toast } = useToast();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
-  
+
   // Permissions check
   const { permissions, isLoading: isPermissionsLoading, hasAllRequired, requestAll } = usePermissions();
-  
+
   const appState = useAppState();
   const panic = usePanicContext();
   const recording = useRecording();
-  const { monitoring, audioTriggerConfig, isLoading: isConfigLoading, syncConfig, isVoiceTriggerEnabled, periodosSemana } = useConfig();
+  const { monitoring, isLoading: isConfigLoading, syncConfig, isVoiceTriggerEnabled, periodosSemana } = useConfig();
   useHeartbeat({ autoStart: true });
-  const audioTrigger = useAudioTriggerController(undefined, audioTriggerConfig);
-  
+  const audioTrigger = useAudioTriggerController(undefined, undefined);
+
   // Stealth notification - shows "Bem-estar Ativo" when monitoring is active
   useStealthNotification(audioTrigger.isCapturing);
-  
+
   // Ref to track if we auto-started the recording (to avoid duplicate toasts)
   const autoRecordingStartedRef = useRef(false);
   // Ref to track if audio was started manually via debug panel
@@ -90,31 +90,31 @@ export function HomePage({ onLogout }: HomePageProps) {
   }, [hasAllRequired, isPermissionsLoading, requestAll]);
 
   // Auto-start audio monitoring when in monitoring period (only if permissions granted)
-	  // Auto-stop when exiting the period (unless started manually via debug panel)
-	  useEffect(() => {
-	    if (!hasAllRequired) return; // Don't start monitoring without permissions
-	    
-	    if (monitoring.dentroHorario && !audioTrigger.isCapturing) {
-	      console.log('[Home] Auto-starting audio trigger (dentro do período de monitoramento)');
-	      audioTrigger.start();
-	    } else if (!monitoring.dentroHorario && audioTrigger.isCapturing && !manualAudioStartRef.current) {
-	      console.log('[Home] Auto-stopping audio trigger (fora do período de monitoramento)');
-	      audioTrigger.stop();
-	    }
-	  }, [
-	    hasAllRequired,
-	    monitoring.dentroHorario, 
-	    audioTrigger.isCapturing,
-	    audioTrigger.start,
-	    audioTrigger.stop,
-	    manualAudioStartRef.current, // Add dependency
-	  ]);
+  // Auto-stop when exiting the period (unless started manually via debug panel)
+  useEffect(() => {
+    if (!hasAllRequired) return; // Don't start monitoring without permissions
+
+    if (monitoring.dentroHorario && !audioTrigger.isCapturing) {
+      console.log('[Home] Auto-starting audio trigger (dentro do período de monitoramento)');
+      audioTrigger.start();
+    } else if (!monitoring.dentroHorario && audioTrigger.isCapturing && !manualAudioStartRef.current) {
+      console.log('[Home] Auto-stopping audio trigger (fora do período de monitoramento)');
+      audioTrigger.stop();
+    }
+  }, [
+    hasAllRequired,
+    monitoring.dentroHorario,
+    audioTrigger.isCapturing,
+    audioTrigger.start,
+    audioTrigger.stop,
+    manualAudioStartRef.current, // Add dependency
+  ]);
 
   // Auto-start recording when discussion is detected
   useEffect(() => {
-    const shouldAutoRecord = 
-      audioTrigger.discussionOn && 
-      !recording.isRecording && 
+    const shouldAutoRecord =
+      audioTrigger.discussionOn &&
+      !recording.isRecording &&
       !panic.isPanicActive &&
       !autoRecordingStartedRef.current;
 
@@ -132,7 +132,7 @@ export function HomePage({ onLogout }: HomePageProps) {
         }
       });
     }
-    
+
     // Reset the ref when discussion ends and recording stops
     if (!audioTrigger.discussionOn && !recording.isRecording) {
       autoRecordingStartedRef.current = false;
@@ -143,7 +143,7 @@ export function HomePage({ onLogout }: HomePageProps) {
 
   const handleRecordToggle = async () => {
     if (isRecordLoading) return; // Prevent multiple clicks
-    
+
     setIsRecordLoading(true);
     try {
       if (recording.isRecording) {
@@ -210,16 +210,16 @@ export function HomePage({ onLogout }: HomePageProps) {
     <div className="min-h-screen flex flex-col bg-background safe-area-inset-top safe-area-inset-bottom relative overflow-hidden">
       {/* Background watermark logo */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <img 
-          src={amparaCircleLogo} 
-          alt="" 
+        <img
+          src={amparaCircleLogo}
+          alt=""
           className="w-[3200px] h-[3200px] object-contain opacity-20"
         />
       </div>
       {/* Header */}
-	      <header className="flex items-center justify-between px-4 py-2 bg-background">
-	        <Logo size="sm" />
-	        <div className="flex items-center gap-2">
+      <header className="flex items-center justify-between px-4 py-2 bg-background">
+        <Logo size="sm" />
+        <div className="flex items-center gap-2">
           {/* Upload file button */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -257,7 +257,7 @@ export function HomePage({ onLogout }: HomePageProps) {
               </TooltipContent>
             </Tooltip>
           )}
-          
+
           {/* Menu button */}
           <Button
             variant="ghost"
@@ -271,30 +271,30 @@ export function HomePage({ onLogout }: HomePageProps) {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col items-center p-6">
-        
-	        {/* Top section: Audio meter with integrated monitoring status */}
-	        {!panic.isPanicActive && (
-	          <div className="w-full max-w-sm flex flex-col items-center pt-4 mb-auto">
-	            <AudioTriggerDebugPanel 
-	              audioTrigger={audioTrigger}
-	              onManualStart={handleManualAudioStart}
-	              onManualStop={handleManualAudioStop}
-	            />
-	            <AudioTriggerMeter 
-	              score={audioTrigger.metrics?.score ?? 0}
-	              isCapturing={audioTrigger.isCapturing}
-	              state={audioTrigger.state}
-	              isRecording={recording.isRecording}
-	              recordingDuration={recording.duration}
-	              recordingOrigin={recording.origemGravacao}
-	              dentroHorario={monitoring.dentroHorario}
-	              periodoAtualIndex={monitoring.periodoAtualIndex}
-	              periodosHoje={monitoring.periodosHoje}
-	              periodosSemana={periodosSemana}
-	              isLoading={isConfigLoading}
-	            />
-	          </div>
-	        )}
+
+        {/* Top section: Audio meter with integrated monitoring status */}
+        {!panic.isPanicActive && (
+          <div className="w-full max-w-sm flex flex-col items-center pt-4 mb-auto">
+            <AudioTriggerDebugPanel
+              audioTrigger={audioTrigger}
+              onManualStart={handleManualAudioStart}
+              onManualStop={handleManualAudioStop}
+            />
+            <AudioTriggerMeter
+              score={audioTrigger.metrics?.score ?? 0}
+              isCapturing={audioTrigger.isCapturing}
+              state={audioTrigger.state}
+              isRecording={recording.isRecording}
+              recordingDuration={recording.duration}
+              recordingOrigin={recording.origemGravacao}
+              dentroHorario={monitoring.dentroHorario}
+              periodoAtualIndex={monitoring.periodoAtualIndex}
+              periodosHoje={monitoring.periodosHoje}
+              periodosSemana={periodosSemana}
+              isLoading={isConfigLoading}
+            />
+          </div>
+        )}
 
         {/* Center section: Panic button + Record button */}
         <div className="flex-1 flex flex-col items-center justify-center gap-6">
@@ -313,7 +313,7 @@ export function HomePage({ onLogout }: HomePageProps) {
                   isLoading={isConfigLoading}
                 />
               </motion.div>
-              
+
               {/* Recording button */}
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -335,20 +335,20 @@ export function HomePage({ onLogout }: HomePageProps) {
               className="flex flex-col items-center gap-6"
             >
               <motion.div
-                animate={{ 
-                  scale: [1, 1.03, 1], 
-                  opacity: [1, 0.8, 1] 
+                animate={{
+                  scale: [1, 1.03, 1],
+                  opacity: [1, 0.8, 1]
                 }}
-                transition={{ 
-                  duration: 1.5, 
-                  repeat: Infinity, 
-                  ease: "easeInOut" 
+                transition={{
+                  duration: 1.5,
+                  repeat: Infinity,
+                  ease: "easeInOut"
                 }}
                 className="text-6xl font-bold text-destructive"
               >
                 {formatDuration(panic.panicDuration)}
               </motion.div>
-              
+
               <motion.button
                 onClick={() => navigate('/panic-active')}
                 className={`

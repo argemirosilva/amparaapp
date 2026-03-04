@@ -4,13 +4,17 @@ import type { DeviceInfoPlugin, DeviceInfoExtended } from './deviceInfo';
 export class DeviceInfoWeb extends WebPlugin implements DeviceInfoPlugin {
   async getExtendedInfo(): Promise<DeviceInfoExtended> {
     const platform = Capacitor.getPlatform();
-    
-    // Get device info from Capacitor
-    const info = await Capacitor.getInfo();
-    
+
+    // Obter info do dispositivo via fallbacks do navegador
+    const info: any = {
+      model: navigator.userAgent,
+      osVersion: 'Unknown',
+      appVersion: '1.0.0',
+    };
+
     // Build device model string
     let deviceModel = 'Web Browser';
-    
+
     if (platform === 'ios') {
       // iOS: "iPhone (iOS 18.7)" ou "iPad (iOS 18.7)"
       deviceModel = `${info.model || 'iPhone'} (iOS ${info.osVersion || 'Unknown'})`;
@@ -22,11 +26,11 @@ export class DeviceInfoWeb extends WebPlugin implements DeviceInfoPlugin {
       // Web: User-Agent
       deviceModel = navigator.userAgent;
     }
-    
+
     // Get battery info if available
     let batteryLevel = 100;
     let isCharging = false;
-    
+
     if ('getBattery' in navigator) {
       try {
         const battery = await (navigator as any).getBattery();
@@ -36,11 +40,11 @@ export class DeviceInfoWeb extends WebPlugin implements DeviceInfoPlugin {
         console.log('[DeviceInfoWeb] Battery API not available:', error);
       }
     }
-    
+
     // Get timezone info
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const timezoneOffsetMinutes = -new Date().getTimezoneOffset(); // Inverte sinal (getTimezoneOffset retorna negativo para GMT+)
-    
+
     return {
       deviceModel,
       batteryLevel,

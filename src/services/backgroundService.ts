@@ -94,7 +94,6 @@ class BackgroundService {
         smallIcon: FOREGROUND_CONFIG.smallIcon,
         silent: false, // MUST be false to show notification
         notificationChannelId: NOTIFICATION_CHANNEL_ID, // CRITICAL!
-        foregroundServiceTypes: ['location', 'microphone'], // Use location + microphone to keep app alive
       });
       console.log('[BackgroundService] startForegroundService returned:', result);
 
@@ -158,7 +157,6 @@ class BackgroundService {
         body: body || FOREGROUND_CONFIG.body,
         smallIcon: FOREGROUND_CONFIG.smallIcon,
         silent: true,
-        foregroundServiceTypes: ['location', 'microphone'],
       });
       console.log('[BackgroundService] Updated notification text');
     } catch (error) {

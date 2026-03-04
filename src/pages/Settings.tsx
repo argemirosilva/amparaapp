@@ -216,7 +216,7 @@ export default function SettingsPage() {
       } else {
         toast({
           title: 'Erro',
-          description: result.data?.error || 'Erro ao alterar senha',
+          description: (result.data as any)?.error || 'Erro ao alterar senha',
           variant: 'destructive',
         });
       }
@@ -252,7 +252,7 @@ export default function SettingsPage() {
 
     // Normal mode: actual schedule save
     try {
-      const result = await updateSchedules(modifiedSchedule);
+      const result = await updateSchedules({ ...initialSchedule, ...modifiedSchedule });
 
       if (result.error) {
         // Check for session expiration

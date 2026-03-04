@@ -42,7 +42,7 @@ class PermissionsService {
       this.checkLocation(),
     ]);
 
-    return { microphone, location };
+    return { microphone, location, notification: 'prompt' as PermissionStatus };
   }
 
   /**
@@ -149,7 +149,7 @@ class PermissionsService {
         this.setCachedMicrophonePermission(result.granted ? 'granted' : 'denied');
         return result.granted;
       }
-      
+
       // On web, use getUserMedia
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Stop tracks immediately after getting permission
@@ -195,7 +195,7 @@ class PermissionsService {
     // Request in sequence to avoid overwhelming the user
     await this.requestMicrophone();
     await this.requestLocation();
-    
+
     // Check final state
     return this.checkAll();
   }
@@ -266,16 +266,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T)
 // Convenience exports for direct use
 export async function checkPermissions(): Promise<PermissionsState> {
   console.log('[checkPermissions] Starting permission check...');
-  
+
   const isIOS = Capacitor.getPlatform() === 'ios';
-  
+
   // iOS: Usar verificação simplificada para evitar travamento
   if (isIOS) {
     console.log('[checkPermissions] iOS detected, using simplified check');
-    
+
     let microphone: PermissionStatus = 'prompt';
     let location: PermissionStatus = 'prompt';
-    
+
     // Check microphone via native plugin (verifica diretamente no iOS)
     try {
       const result = await withTimeout(
@@ -288,7 +288,7 @@ export async function checkPermissions(): Promise<PermissionsState> {
     } catch (error) {
       console.warn('[checkPermissions] Error checking microphone:', error);
     }
-    
+
     // Check location via Capacitor
     try {
       const status = await withTimeout(
@@ -301,16 +301,16 @@ export async function checkPermissions(): Promise<PermissionsState> {
     } catch (error) {
       console.warn('[checkPermissions] Error checking location:', error);
     }
-    
+
     return { microphone, location, notification: 'prompt' };
   }
-  
+
   // Android: Verificação completa
   const [microphone, location] = await Promise.all([
     withTimeout(permissionsService.checkMicrophone(), 3000, 'prompt' as PermissionStatus),
     withTimeout(permissionsService.checkLocation(), 3000, 'prompt' as PermissionStatus),
   ]);
-  
+
   // Check notification permission
   let notification: PermissionStatus = 'prompt';
   try {
@@ -324,7 +324,7 @@ export async function checkPermissions(): Promise<PermissionsState> {
   } catch (error) {
     console.warn('Error checking notification permission:', error);
   }
-  
+
   return { microphone, location, notification };
 }
 
@@ -344,11 +344,11 @@ export async function requestNotificationPermission(): Promise<PermissionStatus>
       console.warn('Notifications not supported');
       return 'denied';
     }
-    
+
     if (Notification.permission === 'granted') {
       return 'granted';
     }
-    
+
     const permission = await Notification.requestPermission();
     return permission === 'granted' ? 'granted' : 'denied';
   } catch (error) {
