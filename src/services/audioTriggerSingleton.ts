@@ -488,8 +488,8 @@ class AudioTriggerSingleton {
   }
 
   /**
-   * Update metrics from native audioMetrics event
-   * This allows native metrics to update UI state
+   * Atualiza métricas com dados do evento audioMetrics nativo
+   * Permite que as métricas nativas atualizem o estado da UI
    */
   setNativeMetrics(nativeMetrics: any) {
     console.log('[AudioTriggerSingleton] 🔄 setNativeMetrics called:', {
@@ -500,21 +500,28 @@ class AudioTriggerSingleton {
       listenersCount: this.stateListeners.length
     });
 
-    // Update metrics with native data
+    // Classificação H/M baseada no ZCR
+    const zcr = nativeMetrics.zcr ?? 0;
+    let gender: 'MALE' | 'FEMALE' | 'UNKNOWN' = 'UNKNOWN';
+    if (zcr > 0 && (nativeMetrics.isSpeech ?? false)) {
+      gender = zcr < 0.08 ? 'MALE' : 'FEMALE';
+    }
+
+    // Atualiza métricas com dados nativos
     this.metrics = {
       timestamp: nativeMetrics.timestamp ?? Date.now(),
       dbfsCurrent: nativeMetrics.rmsDb ?? 0,
-      noiseFloorDb: 0,
+      noiseFloorDb: nativeMetrics.noiseFloor ?? 0,
       speechRatio: 0,
       loudRatio: 0,
-      speechDensity: 0,
-      loudDensity: 0,
+      speechDensity: nativeMetrics.speechDensity ?? 0,
+      loudDensity: nativeMetrics.loudDensity ?? 0,
       turnTaking: 0,
       score: nativeMetrics.score ?? 0,
-      f0Current: 0,
-      f0Median2s: 0,
+      f0Current: zcr > 0 ? zcr : null,
+      f0Median2s: null,
       voicingConfidence: null,
-      gender: 'UNKNOWN',
+      gender: gender,
       speechOn: nativeMetrics.isSpeech ?? false,
       loudOn: nativeMetrics.isLoud ?? false,
       discussionOn: nativeMetrics.state === 'DISCUSSION_DETECTED',

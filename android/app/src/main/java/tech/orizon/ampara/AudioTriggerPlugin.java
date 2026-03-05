@@ -97,6 +97,16 @@ public class AudioTriggerPlugin extends Plugin {
                 if (intent.hasExtra("score")) {
                     ret.put("score", intent.getDoubleExtra("score", 0.0));
                 }
+                // Dados extras para tela técnica
+                if (intent.hasExtra("speechDensity")) {
+                    ret.put("speechDensity", intent.getDoubleExtra("speechDensity", 0.0));
+                }
+                if (intent.hasExtra("loudDensity")) {
+                    ret.put("loudDensity", intent.getDoubleExtra("loudDensity", 0.0));
+                }
+                if (intent.hasExtra("noiseFloor")) {
+                    ret.put("noiseFloor", intent.getDoubleExtra("noiseFloor", 0.0));
+                }
 
                 notifyListeners("audioTriggerEvent", ret);
             }
@@ -484,6 +494,37 @@ public class AudioTriggerPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to trigger upload: " + e.getMessage());
         }
+    }
+
+    /**
+     * Salva preferência de notificações de eventos no SharedPreferences nativo
+     */
+    @PluginMethod
+    public void setNotificationPreference(PluginCall call) {
+        boolean enabled = call.getBoolean("enabled", true);
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences("AmparaPrefs",
+                Context.MODE_PRIVATE);
+        prefs.edit().putBoolean("notifications_enabled", enabled).apply();
+
+        Log.d(TAG, "Notification preference set: " + enabled);
+
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        call.resolve(ret);
+    }
+
+    /**
+     * Obtém preferência de notificações de eventos do SharedPreferences nativo
+     */
+    @PluginMethod
+    public void getNotificationPreference(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences("AmparaPrefs",
+                Context.MODE_PRIVATE);
+        boolean enabled = prefs.getBoolean("notifications_enabled", true);
+
+        JSObject ret = new JSObject();
+        ret.put("enabled", enabled);
+        call.resolve(ret);
     }
 
     @Override

@@ -92,6 +92,16 @@ export interface AudioTriggerNativePlugin {
   reportStatus(options: { status: string; isMonitoring: boolean; motivo: string }): Promise<{ success: boolean }>;
 
   /**
+   * Salvar preferência de notificações de eventos (salvo localmente no dispositivo)
+   */
+  setNotificationPreference(options: { enabled: boolean }): Promise<{ success: boolean }>;
+
+  /**
+   * Obter preferência de notificações de eventos
+   */
+  getNotificationPreference(): Promise<{ enabled: boolean }>;
+
+  /**
    * Remove all listeners
    */
   removeAllListeners(): Promise<void>;

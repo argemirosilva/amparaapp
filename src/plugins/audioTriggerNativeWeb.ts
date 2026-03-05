@@ -202,6 +202,17 @@ export class AudioTriggerNativeWeb extends WebPlugin implements AudioTriggerNati
     return { success: false };
   }
 
+  async setNotificationPreference(options: { enabled: boolean }): Promise<{ success: boolean }> {
+    console.log('[AudioTriggerNativeWeb] setNotificationPreference() - Web fallback', options);
+    localStorage.setItem('ampara_notifications_enabled', String(options.enabled));
+    return { success: true };
+  }
+
+  async getNotificationPreference(): Promise<{ enabled: boolean }> {
+    const stored = localStorage.getItem('ampara_notifications_enabled');
+    return { enabled: stored !== 'false' };
+  }
+
   private getSupportedMimeType(): string {
     const types = [
       'audio/webm;codecs=opus',

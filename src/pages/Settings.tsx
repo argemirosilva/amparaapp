@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Lock, Calendar, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Lock, Calendar, Eye, EyeOff, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,7 @@ import { PeriodosSemana } from '@/lib/types';
 import { getCurrentConfig, forceSyncConfig } from '@/services/configService';
 import { WeeklyScheduleEditor } from '@/components/WeeklyScheduleEditor';
 import { PasswordValidationDialog } from '@/components/PasswordValidationDialog';
+import { AudioTriggerNative } from '@/plugins/audioTriggerNative';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -37,6 +38,18 @@ export default function SettingsPage() {
   const [initialSchedule, setInitialSchedule] = useState<WeekSchedule>({});
   const [modifiedSchedule, setModifiedSchedule] = useState<WeekSchedule>({});
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+
+  // Estado das notificações de eventos
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+  // Carregar preferência de notificações ao autenticar
+  useEffect(() => {
+    if (isAuthenticated) {
+      AudioTriggerNative.getNotificationPreference()
+        .then(({ enabled }) => setNotificationsEnabled(enabled))
+        .catch(() => { });
+    }
+  }, [isAuthenticated]);
 
   // Load initial schedule from ConfigService (force sync from server)
   useEffect(() => {
@@ -475,6 +488,46 @@ export default function SettingsPage() {
                 'Salvar Nova Senha'
               )}
             </Button>
+          </div>
+        </motion.div>
+
+        {/* Notifications Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="card-glass-dark rounded-2xl p-6"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Bell className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Notificações</h2>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex-1 pr-4">
+              <p className="text-sm font-medium text-foreground">Notificações de eventos</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Receba alertas silenciosos quando uma gravação iniciar ou finalizar por detecção automática
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                const newValue = !notificationsEnabled;
+                setNotificationsEnabled(newValue);
+                try {
+                  await AudioTriggerNative.setNotificationPreference({ enabled: newValue });
+                } catch (e) {
+                  console.error('[Settings] Error saving notification preference:', e);
+                }
+              }}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${notificationsEnabled ? 'bg-primary' : 'bg-gray-600'
+                }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${notificationsEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+              />
+            </button>
           </div>
         </motion.div>
 

@@ -304,6 +304,9 @@ export function HomePage({ onLogout }: HomePageProps) {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [showPanicPulse, setShowPanicPulse] = useState(false);
+  // Estado de confirmação em dois toques para evitar gravações acidentais
+  const [recordConfirmPending, setRecordConfirmPending] = useState(false);
+  const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRecordingEffective = recording.isRecording || appState.status === 'recording';
   const menuControlHeightPx = 40;
   // No Android, descer os botões do header 2x a altura do botão menu
@@ -311,8 +314,17 @@ export function HomePage({ onLogout }: HomePageProps) {
     ? 0
     : Math.round(menuControlHeightPx * 1.5);
 
+  // Limpa o timer de confirmação ao desmontar o componente
+  useEffect(() => {
+    return () => {
+      if (confirmTimeoutRef.current) {
+        clearTimeout(confirmTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleRecordToggle = async () => {
-    if (isRecordLoading) return; // Prevent multiple clicks
+    if (isRecordLoading) return; // Previne cliques múltiplos
 
     // Se o pânico estiver ativo, não permite parar a gravação
     if (panic.isPanicActive && isRecordingEffective) {
@@ -326,32 +338,57 @@ export function HomePage({ onLogout }: HomePageProps) {
       return;
     }
 
-    setIsRecordLoading(true);
-    try {
-      if (isRecordingEffective) {
+    // Parar gravação — toque direto, sem confirmação
+    if (isRecordingEffective) {
+      setIsRecordLoading(true);
+      try {
         await recording.stopRecording();
         appState.setStatus('normal');
         toast({
           title: 'Gravação encerrada',
           description: `${recording.segmentsSent} segmentos enviados.`,
         });
+      } finally {
+        setIsRecordLoading(false);
+      }
+      return;
+    }
+
+    // Iniciar gravação — sistema de confirmação em dois toques
+    if (!recordConfirmPending) {
+      // Primeiro toque: ativar estado de confirmação
+      setRecordConfirmPending(true);
+      // Timer de 12 segundos para resetar se não confirmar
+      confirmTimeoutRef.current = setTimeout(() => {
+        setRecordConfirmPending(false);
+        confirmTimeoutRef.current = null;
+      }, 12000);
+      return;
+    }
+
+    // Segundo toque: confirmar e iniciar gravação
+    if (confirmTimeoutRef.current) {
+      clearTimeout(confirmTimeoutRef.current);
+      confirmTimeoutRef.current = null;
+    }
+    setRecordConfirmPending(false);
+    setIsRecordLoading(true);
+    try {
+      // Status otimista para evitar atraso na indicação "Gravando" no meter
+      appState.setStatus('recording');
+      const success = await recording.startRecording();
+      if (success) {
+        toast({
+          title: 'Gravação iniciada',
+          description: 'O áudio está sendo enviado em tempo real.',
+        });
       } else {
-        // Optimistic UI status to avoid delayed "Gravando" indication in meter.
-        appState.setStatus('recording');
-        const success = await recording.startRecording();
-        if (success) {
-          toast({
-            title: 'Gravação iniciada',
-            description: 'O áudio está sendo enviado em tempo real.',
-          });
-        } else {
-          appState.setStatus('normal');
-          toast({
-            title: 'Erro ao iniciar gravação',
-            description: 'Verifique as permissões do microfone.',
-            variant: 'destructive',
-          });
-        }
+        appState.setStatus('normal');
+        toast({
+          title: 'Erro ao iniciar gravação',
+          description: 'Verifique as permissões do microfone.',
+          variant: 'destructive',
+        });
       }
     } finally {
       setIsRecordLoading(false);
@@ -598,16 +635,27 @@ export function HomePage({ onLogout }: HomePageProps) {
             <Button
               onClick={handleRecordToggle}
               disabled={panic.isActivating || panic.isSendingToServer || isRecordLoading}
-              aria-label={isRecordingEffective ? 'Parar gravação' : 'Iniciar gravação manual'}
-              className={`rounded-full w-16 h-16 p-0 border-0 ${isRecordingEffective
+              aria-label={
+                isRecordingEffective
+                  ? 'Parar gravação'
+                  : recordConfirmPending
+                    ? 'Confirmar gravação'
+                    : 'Iniciar gravação manual'
+              }
+              className={`rounded-full w-16 h-16 p-0 border-0 transition-all duration-300 ${isRecordingEffective
                 ? 'bg-black hover:bg-black/90 text-white'
-                : 'btn-primary-neon hover:opacity-90 text-white'
+                : recordConfirmPending
+                  ? 'bg-purple-500 hover:bg-purple-600 text-white shadow-lg shadow-purple-500/40'
+                  : 'btn-primary-neon hover:opacity-90 text-white'
                 }`}
+              style={recordConfirmPending ? { animation: 'pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite' } : undefined}
             >
               {isRecordLoading ? (
                 '...'
               ) : isRecordingEffective ? (
                 <Square className="w-6 h-6 fill-current" />
+              ) : recordConfirmPending ? (
+                <Mic className="w-6 h-6" />
               ) : (
                 <span className="relative flex items-center justify-center w-7 h-7">
                   <span className="absolute w-7 h-7 rounded-full border-2 border-white/90" />
@@ -615,8 +663,9 @@ export function HomePage({ onLogout }: HomePageProps) {
                 </span>
               )}
             </Button>
-            <span className={`mt-2 text-sm font-medium ${isRecordingEffective ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {isRecordingEffective ? 'Parar' : 'Gravar'}
+            <span className={`mt-2 text-sm font-medium transition-colors duration-300 ${isRecordingEffective ? 'text-destructive' : 'text-muted-foreground'
+              }`}>
+              {isRecordingEffective ? 'Parar' : recordConfirmPending ? 'Confirmar?' : 'Gravar'}
             </span>
           </motion.div>
         </div>

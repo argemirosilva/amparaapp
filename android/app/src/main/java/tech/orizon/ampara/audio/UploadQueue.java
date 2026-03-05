@@ -3,6 +3,7 @@ package tech.orizon.ampara.audio;
 import android.content.Context;
 import android.util.Log;
 
+import java.util.Arrays;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -291,6 +292,55 @@ public class UploadQueue {
     }
 
     /**
+     * Reciclagem de arquivos pendentes: mantém apenas os MAX_PENDING_FILES mais
+     * recentes
+     * e remove os excedentes para evitar acúmulo no armazenamento do dispositivo
+     */
+    private static final int MAX_PENDING_FILES = 10;
+
+    public void recyclePendingFiles() {
+        try {
+            java.io.File recordingsDir = new java.io.File(context.getFilesDir(), "recordings");
+            if (!recordingsDir.exists()) {
+                return;
+            }
+
+            java.io.File[] files = recordingsDir.listFiles((dir, name) -> name.endsWith(".ogg"));
+            if (files == null || files.length <= MAX_PENDING_FILES) {
+                return;
+            }
+
+            // Ordena por data de modificação (mais recente primeiro)
+            Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+
+            int recycledCount = 0;
+            // Remove os arquivos excedentes (mais antigos)
+            for (int i = MAX_PENDING_FILES; i < files.length; i++) {
+                try {
+                    if (files[i].exists()) {
+                        boolean deleted = files[i].delete();
+                        if (deleted) {
+                            recycledCount++;
+                            Log.d(TAG, "Reciclado arquivo antigo: " + files[i].getName());
+                        } else {
+                            Log.w(TAG, "Não foi possível reciclar: " + files[i].getName());
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Erro ao reciclar arquivo: " + files[i].getName(), e);
+                }
+            }
+
+            if (recycledCount > 0) {
+                Log.i(TAG, String.format("Reciclagem concluída: %d arquivo(s) removido(s), %d mantido(s)",
+                        recycledCount, MAX_PENDING_FILES));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Erro durante reciclagem de arquivos pendentes", e);
+        }
+    }
+
+    /**
      * Scan recordings directory and enqueue any pending files
      * 
      * @deprecated Use clearPendingUploads instead as per user request to avoid
@@ -306,6 +356,9 @@ public class UploadQueue {
      * To be called periodically for retry logic
      */
     public void retryPendingUploads(String defaultSessionId, String defaultOrigemGravacao) {
+        // Reciclar arquivos excedentes antes de re-enfileirar
+        recyclePendingFiles();
+
         try {
             java.io.File recordingsDir = new java.io.File(context.getFilesDir(), "recordings");
             if (!recordingsDir.exists()) {

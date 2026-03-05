@@ -48,7 +48,10 @@ import java.util.List;
 public class AudioTriggerService extends Service {
     private static final String TAG = "AudioTriggerService";
     private static final String CHANNEL_ID = "AudioTriggerChannel";
+    private static final String EVENTS_CHANNEL_ID = "AmparaEventsChannel";
     private static final int NOTIFICATION_ID = 1001;
+    // IDs de notificações de eventos começam em 2000 e incrementam
+    private int eventNotificationId = 2000;
 
     // Trilha 1: segurança de energia/retry
     private static final long WAKELOCK_TIMEOUT_MS = 2 * 60 * 1000L; // 2 min
@@ -119,6 +122,7 @@ public class AudioTriggerService extends Service {
 
         // Prepare notification channel (but don't start foreground yet)
         createNotificationChannel();
+        createEventsNotificationChannel();
 
         acquireWakeLock();
 
@@ -177,7 +181,8 @@ public class AudioTriggerService extends Service {
         // Register connectivity listener
         registerNetworkCallback();
 
-        // Trilha 1: NÃO apagar pendências. Em vez disso, retentar o que já está em disco.
+        // Trilha 1: NÃO apagar pendências. Em vez disso, retentar o que já está em
+        // disco.
         if (uploadQueue != null) {
             uploadQueue.start();
             // defaultSessionId/origem só são usados se o parse do filename falhar
@@ -483,8 +488,11 @@ public class AudioTriggerService extends Service {
 
             if ("GET_STATUS".equals(action)) {
                 Log.d(TAG, "Status request received");
-                boolean isCalibrated = detector.isCalibrated();
-                notifyCalibrationStatus(isCalibrated);
+                // Proteção contra null: detector pode não estar inicializado ainda
+                if (detector != null) {
+                    boolean isCalibrated = detector.isCalibrated();
+                    notifyCalibrationStatus(isCalibrated);
+                }
                 notifyPanicState();
                 notifyRecordingState();
             }
@@ -695,7 +703,7 @@ public class AudioTriggerService extends Service {
         double loudNorm = Math.min(result.loudDensity / 0.3, 1.0);
         double discussionScore = (speechNorm + loudNorm) / 2.0;
         notifyMetrics(avgRmsDb, avgZcr, isSpeech, isLoud, detector.getStateString(), discussionScore,
-                detector.isCalibrated());
+                detector.isCalibrated(), result.speechDensity, result.loudDensity, detector.getNoiseFloor());
 
         // Log detection
         if (result.shouldStartRecording) {
@@ -736,6 +744,10 @@ public class AudioTriggerService extends Service {
 
                 Log.i(TAG, "Native recording started: " + sessionId);
                 notifyRecordingStarted(sessionId);
+
+                // Notificação de evento: gravação iniciada
+                showEventNotification("Ampara — Gravação Iniciada",
+                        "Discussão detectada. Gravação automática em andamento.");
 
                 // Notify server that recording started
                 uploader.notifyRecordingStarted(sessionId, currentOrigemGravacao);
@@ -791,6 +803,10 @@ public class AudioTriggerService extends Service {
                         Log.i(TAG, "Recording stopped due to silence: " + sessionId);
                         notifyRecordingStopped(sessionId);
 
+                        // Notificação de evento: gravação finalizada por silêncio (pânico)
+                        showEventNotification("Ampara — Gravação Finalizada",
+                                "Gravação encerrada por silêncio prolongado.");
+
                         // Notify server that recording is complete (silence timeout)
                         uploader.notifyRecordingComplete(sessionId, totalSegments, "timeout");
                     }
@@ -826,6 +842,10 @@ public class AudioTriggerService extends Service {
                     Log.i(TAG, "Native recording stopped: " + sessionId);
                     notifyRecordingStopped(sessionId);
 
+                    // Notificação de evento: gravação finalizada por detecção
+                    showEventNotification("Ampara — Gravação Finalizada",
+                            "A discussão cessou. Áudio sendo enviado.");
+
                     // Notify server that recording is complete (automatic detection ended)
                     uploader.notifyRecordingComplete(sessionId, totalSegments, "silencio");
                 }
@@ -838,7 +858,7 @@ public class AudioTriggerService extends Service {
     }
 
     private void notifyMetrics(double rmsDb, double zcr, boolean isSpeech, boolean isLoud, String state, double score,
-            boolean isCalibrated) {
+            boolean isCalibrated, double speechDensity, double loudDensity, double noiseFloor) {
         Intent intent = new Intent("tech.orizon.ampara.AUDIO_TRIGGER_EVENT");
         intent.setPackage(getPackageName());
         intent.putExtra("event", "audioMetrics");
@@ -849,6 +869,10 @@ public class AudioTriggerService extends Service {
         intent.putExtra("state", state);
         intent.putExtra("score", score);
         intent.putExtra("isCalibrated", isCalibrated);
+        // Dados extras para a tela técnica de debug
+        intent.putExtra("speechDensity", speechDensity);
+        intent.putExtra("loudDensity", loudDensity);
+        intent.putExtra("noiseFloor", noiseFloor);
         intent.putExtra("timestamp", System.currentTimeMillis());
         sendBroadcast(intent);
     }
@@ -923,6 +947,11 @@ public class AudioTriggerService extends Service {
     }
 
     private void notifyPanicState() {
+        // Proteção: panicManager pode ser null se serviço não inicializou completamente
+        if (panicManager == null) {
+            Log.w(TAG, "notifyPanicState called but panicManager is null, skipping");
+            return;
+        }
         Intent intent = new Intent("tech.orizon.ampara.AUDIO_TRIGGER_EVENT");
         intent.setPackage(getPackageName());
         intent.putExtra("event", "panicState");
@@ -936,6 +965,11 @@ public class AudioTriggerService extends Service {
     }
 
     private void notifyRecordingState() {
+        // Proteção: recorder pode ser null se serviço não inicializou completamente
+        if (recorder == null) {
+            Log.w(TAG, "notifyRecordingState called but recorder is null, skipping");
+            return;
+        }
         boolean isRecording = recorder.isRecording();
         String currentSessionId = recorder.getSessionId();
         long sessionStartTime = recorder.getSessionStartTime();
@@ -977,6 +1011,68 @@ public class AudioTriggerService extends Service {
             if (manager != null) {
                 manager.createNotificationChannel(channel);
             }
+        }
+    }
+
+    /**
+     * Cria canal de notificações de eventos (silencioso, sem vibração)
+     * Usado para alertar sobre entradas/saídas de período e gravações
+     */
+    private void createEventsNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    EVENTS_CHANNEL_ID,
+                    "Eventos Ampara",
+                    NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Notificações silenciosas de eventos do Ampara");
+            channel.setShowBadge(true);
+            channel.enableVibration(false);
+            channel.setSound(null, null);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    /**
+     * Exibe notificação de evento silenciosa (visível na tela bloqueada)
+     * Respeita a preferência do usuário salva em SharedPreferences
+     */
+    private void showEventNotification(String title, String message) {
+        try {
+            // Verificar preferência do usuário
+            android.content.SharedPreferences prefs = getSharedPreferences("AmparaPrefs", MODE_PRIVATE);
+            boolean enabled = prefs.getBoolean("notifications_enabled", true);
+            if (!enabled) {
+                Log.d(TAG, "Event notification suppressed (disabled by user): " + title);
+                return;
+            }
+
+            Intent intent = new Intent(this, MainActivity.class);
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                    this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+
+            Notification notification = new NotificationCompat.Builder(this, EVENTS_CHANNEL_ID)
+                    .setContentTitle(title)
+                    .setContentText(message)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentIntent(pendingIntent)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setCategory(NotificationCompat.CATEGORY_STATUS)
+                    .build();
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.notify(eventNotificationId++, notification);
+                Log.d(TAG, "Event notification shown: " + title);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error showing event notification", e);
         }
     }
 
@@ -1194,7 +1290,8 @@ public class AudioTriggerService extends Service {
                     double discussionScore = (speechNorm + loudNorm) / 2.0;
 
                     notifyMetrics(estimatedRms, simulatedZcr, recordingMetrics.isSpeech, recordingMetrics.isLoud,
-                            detector.getStateString(), discussionScore, detector.isCalibrated());
+                            detector.getStateString(), discussionScore, detector.isCalibrated(),
+                            result.speechDensity, result.loudDensity, detector.getNoiseFloor());
 
                     // Check if should stop recording
                     if (result.shouldStopRecording) {
